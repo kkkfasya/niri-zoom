@@ -4673,11 +4673,17 @@ fn grab_allows_hot_corner(grab: &(dyn PointerGrab<State> + 'static)) -> bool {
     //
     // Some notable grabs not mentioned here:
     // - DnDGrab allows hot corner to DnD across workspaces.
-    // - MoveGrab allows hot corner to DnD across workspaces.
     // - ClickGrab keeps pointer focus on the window, so the hot corner doesn't trigger.
     // - Touch grabs: touch doesn't trigger the hot corner.
     if grab.is::<ResizeGrab>() || grab.is::<SpatialMovementGrab>() {
         return false;
+    }
+
+    if let Some(grab) = grab.downcast_ref::<MoveGrab>() {
+        // Window move allows hot corner to DnD across workspaces.
+        if !grab.is_move() {
+            return false;
+        }
     }
 
     true

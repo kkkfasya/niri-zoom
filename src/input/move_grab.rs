@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use smithay::backend::input::ButtonState;
 use smithay::desktop::Window;
 use smithay::input::pointer::{
@@ -26,6 +28,7 @@ pub struct MoveGrab {
 enum GestureState {
     Recognizing,
     Move,
+    ViewOffset,
 }
 
 impl MoveGrab {
@@ -46,9 +49,27 @@ impl MoveGrab {
         })
     }
 
+    pub fn is_move(&self) -> bool {
+        self.gesture == GestureState::Move
+    }
+
     fn on_ungrab(&mut self, state: &mut State) {
-        if self.gesture == GestureState::Move {
-            state.niri.layout.interactive_move_end(&self.window);
+        let layout = &mut state.niri.layout;
+        match self.gesture {
+            GestureState::Recognizing => {
+                // TODO
+                if layout.interactive_move_begin(
+                    self.window.clone(),
+                    &self.start_output,
+                    self.start_pos_within_output,
+                ) {
+                    layout.interactive_move_end(&self.window)
+                }
+            }
+            GestureState::Move => layout.interactive_move_end(&self.window),
+            GestureState::ViewOffset => {
+                layout.view_offset_gesture_end(Some(false));
+            }
         }
 
         // FIXME: only redraw the window output.
@@ -71,52 +92,105 @@ impl PointerGrab<State> for MoveGrab {
         // While the grab is active, no client has pointer focus.
         handle.motion(data, None, event);
 
+        let timestamp = Duration::from_millis(u64::from(event.time));
+
+        // TODO: not needed for view offset
         if self.window.alive() {
+            // TODO: not needed for view offset
             if let Some((output, pos_within_output)) = data.niri.output_under(event.location) {
                 let output = output.clone();
-                let mut event_delta = event.location - self.last_location;
+                let mut delta = event.location - self.last_location;
                 self.last_location = event.location;
+
+                let layout = &mut data.niri.layout;
 
                 if self.gesture == GestureState::Recognizing {
                     let c = event.location - self.start_data.location;
 
                     // Check if the gesture moved far enough to decide.
                     if c.x * c.x + c.y * c.y >= 8. * 8. {
-                        if !data.niri.layout.interactive_move_begin(
-                            self.window.clone(),
-                            &self.start_output,
-                            self.start_pos_within_output,
-                        ) {
-                            // Can no longer start the move.
-                            handle.unset_grab(self, data, event.serial, event.time, true);
-                            return;
+                        let is_floating = layout
+                            .workspaces()
+                            .find_map(|(_, _, ws)| {
+                                ws.windows()
+                                    .any(|w| w.window == self.window)
+                                    .then(|| ws.is_floating(&self.window))
+                            })
+                            .unwrap_or(false);
+
+                        if !is_floating && c.x.abs() > c.y.abs() {
+                            let Some((output, ws_idx)) =
+                                layout.workspaces().find_map(|(mon, ws_idx, ws)| {
+                                    let ws_idx = ws
+                                        .windows()
+                                        .any(|w| w.window == self.window)
+                                        .then_some(ws_idx)?;
+                                    let output = mon?.output().clone();
+                                    Some((output, ws_idx))
+                                })
+                            else {
+                                // Can no longer start the gesture.
+                                handle.unset_grab(self, data, event.serial, event.time, true);
+                                return;
+                            };
+
+                            layout.view_offset_gesture_begin(&output, Some(ws_idx), false);
+
+                            // Apply the whole delta that accumulated during recognizing.
+                            delta = c;
+
+                            self.gesture = GestureState::ViewOffset;
+
+                            data.niri
+                                .cursor_manager
+                                .set_cursor_image(CursorImageStatus::Named(CursorIcon::AllScroll));
+                        } else {
+                            if !layout.interactive_move_begin(
+                                self.window.clone(),
+                                &self.start_output,
+                                self.start_pos_within_output,
+                            ) {
+                                // Can no longer start the move.
+                                handle.unset_grab(self, data, event.serial, event.time, true);
+                                return;
+                            }
+
+                            // Apply the whole delta that accumulated during recognizing.
+                            delta = c;
+
+                            self.gesture = GestureState::Move;
+
+                            data.niri
+                                .cursor_manager
+                                .set_cursor_image(CursorImageStatus::Named(CursorIcon::Move));
                         }
-
-                        // Apply the whole delta that accumulated during recognizing.
-                        event_delta = c;
-
-                        self.gesture = GestureState::Move;
-
-                        data.niri
-                            .cursor_manager
-                            .set_cursor_image(CursorImageStatus::Named(CursorIcon::Move));
                     }
                 }
 
-                if self.gesture != GestureState::Move {
-                    return;
-                }
-
-                let ongoing = data.niri.layout.interactive_move_update(
-                    &self.window,
-                    event_delta,
-                    output,
-                    pos_within_output,
-                );
-                if ongoing {
-                    // FIXME: only redraw the previous and the new output.
-                    data.niri.queue_redraw_all();
-                    return;
+                match self.gesture {
+                    GestureState::Recognizing => return,
+                    GestureState::Move => {
+                        let ongoing = layout.interactive_move_update(
+                            &self.window,
+                            delta,
+                            output,
+                            pos_within_output,
+                        );
+                        if ongoing {
+                            // FIXME: only redraw the previous and the new output.
+                            data.niri.queue_redraw_all();
+                            return;
+                        }
+                    }
+                    GestureState::ViewOffset => {
+                        let res = layout.view_offset_gesture_update(-delta.x, timestamp, false);
+                        if let Some(output) = res {
+                            if let Some(output) = output {
+                                data.niri.queue_redraw(&output);
+                            }
+                            return;
+                        }
+                    }
                 }
             } else {
                 return;
@@ -146,14 +220,17 @@ impl PointerGrab<State> for MoveGrab {
     ) {
         handle.button(data, event);
 
-        // When moving with the left button, right toggles floating, and vice versa.
-        let toggle_floating_button = if self.start_data.button == 0x110 {
-            0x111
-        } else {
-            0x110
-        };
-        if event.button == toggle_floating_button && event.state == ButtonState::Pressed {
-            data.niri.layout.toggle_window_floating(Some(&self.window));
+        // TODO: start move if recognizing?
+        if self.gesture == GestureState::Move {
+            // When moving with the left button, right toggles floating, and vice versa.
+            let toggle_floating_button = if self.start_data.button == 0x110 {
+                0x111
+            } else {
+                0x110
+            };
+            if event.button == toggle_floating_button && event.state == ButtonState::Pressed {
+                data.niri.layout.toggle_window_floating(Some(&self.window));
+            }
         }
 
         if !handle.current_pressed().contains(&self.start_data.button) {
