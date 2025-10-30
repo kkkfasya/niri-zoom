@@ -2612,31 +2612,18 @@ impl State {
                     let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());
                     if is_overview_open || mod_down {
                         let location = pointer.current_location();
-                        let (output, pos_within_output) = self.niri.output_under(location).unwrap();
-                        let output = output.clone();
 
                         if !is_overview_open {
                             self.niri.layout.activate_window(&window);
                         }
 
-                        if self.niri.layout.interactive_move_begin(
-                            window.clone(),
-                            &output,
-                            pos_within_output,
-                        ) {
-                            let start_data = PointerGrabStartData {
-                                focus: None,
-                                button: button_code,
-                                location,
-                            };
-                            let grab = MoveGrab::new(start_data, window.clone(), is_overview_open);
+                        let start_data = PointerGrabStartData {
+                            focus: None,
+                            button: button_code,
+                            location,
+                        };
+                        if let Some(grab) = MoveGrab::new(self, start_data, window.clone()) {
                             pointer.set_grab(self, grab, serial, Focus::Clear);
-
-                            if !is_overview_open {
-                                self.niri
-                                    .cursor_manager
-                                    .set_cursor_image(CursorImageStatus::Named(CursorIcon::Move));
-                            }
                         }
                     }
                 }

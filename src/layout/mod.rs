@@ -3731,6 +3731,10 @@ impl<W: LayoutElement> Layout<W> {
         true
     }
 
+    pub fn is_interactive_move_ongoing(&self) -> bool {
+        self.interactive_move.is_some()
+    }
+
     pub fn interactive_move_begin(
         &mut self,
         window_id: W::Id,

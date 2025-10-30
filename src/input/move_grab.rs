@@ -8,12 +8,15 @@ use smithay::input::pointer::{
     RelativeMotionEvent,
 };
 use smithay::input::SeatHandler;
+use smithay::output::Output;
 use smithay::utils::{IsAlive, Logical, Point};
 
 use crate::niri::State;
 
 pub struct MoveGrab {
     start_data: PointerGrabStartData<State>,
+    start_output: Output,
+    start_pos_within_output: Point<f64, Logical>,
     last_location: Point<f64, Logical>,
     window: Window,
     gesture: GestureState,
@@ -27,26 +30,27 @@ enum GestureState {
 
 impl MoveGrab {
     pub fn new(
+        state: &mut State,
         start_data: PointerGrabStartData<State>,
         window: Window,
-        use_threshold: bool,
-    ) -> Self {
-        let gesture = if use_threshold {
-            GestureState::Recognizing
-        } else {
-            GestureState::Move
-        };
+    ) -> Option<Self> {
+        let (output, pos_within_output) = state.niri.output_under(start_data.location)?;
 
-        Self {
+        Some(Self {
             last_location: start_data.location,
             start_data,
+            start_output: output.clone(),
+            start_pos_within_output: pos_within_output,
             window,
-            gesture,
-        }
+            gesture: GestureState::Recognizing,
+        })
     }
 
     fn on_ungrab(&mut self, state: &mut State) {
-        state.niri.layout.interactive_move_end(&self.window);
+        if self.gesture == GestureState::Move {
+            state.niri.layout.interactive_move_end(&self.window);
+        }
+
         // FIXME: only redraw the window output.
         state.niri.queue_redraw_all();
         state
@@ -70,7 +74,7 @@ impl PointerGrab<State> for MoveGrab {
         if self.window.alive() {
             if let Some((output, pos_within_output)) = data.niri.output_under(event.location) {
                 let output = output.clone();
-                let event_delta = event.location - self.last_location;
+                let mut event_delta = event.location - self.last_location;
                 self.last_location = event.location;
 
                 if self.gesture == GestureState::Recognizing {
@@ -78,6 +82,19 @@ impl PointerGrab<State> for MoveGrab {
 
                     // Check if the gesture moved far enough to decide.
                     if c.x * c.x + c.y * c.y >= 8. * 8. {
+                        if !data.niri.layout.interactive_move_begin(
+                            self.window.clone(),
+                            &self.start_output,
+                            self.start_pos_within_output,
+                        ) {
+                            // Can no longer start the move.
+                            handle.unset_grab(self, data, event.serial, event.time, true);
+                            return;
+                        }
+
+                        // Apply the whole delta that accumulated during recognizing.
+                        event_delta = c;
+
                         self.gesture = GestureState::Move;
 
                         data.niri

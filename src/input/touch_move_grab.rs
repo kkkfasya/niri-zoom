@@ -14,6 +14,8 @@ pub struct TouchMoveGrab {
     window: Window,
 }
 
+// TODO gesture state, start interactive move, etc.
+
 impl TouchMoveGrab {
     pub fn new(start_data: TouchGrabStartData<State>, window: Window) -> Self {
         Self {
