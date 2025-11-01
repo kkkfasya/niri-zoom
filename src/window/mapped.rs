@@ -1,5 +1,5 @@
 use std::cell::{Cell, Ref, RefCell};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use niri_config::{Color, CornerRadius, GradientInterpolation, WindowRule};
 use smithay::backend::renderer::element::surface::render_elements_from_surface_tree;
@@ -184,8 +184,8 @@ pub struct Mapped {
     /// in response yet.
     uncommitted_maximized: Vec<(Serial, bool)>,
 
-    /// Most recent time the window had the focus.
-    most_recent_focus: Option<Instant>,
+    /// Most recent monotonic time the window had the focus.
+    most_recent_focus: Option<Duration>,
 }
 
 niri_render_elements! {
@@ -519,11 +519,11 @@ impl Mapped {
         })
     }
 
-    pub fn get_focus_timestamp(&self) -> Option<Instant> {
+    pub fn get_focus_timestamp(&self) -> Option<Duration> {
         self.most_recent_focus
     }
 
-    pub fn update_focus_timestamp(&mut self, timestamp: Instant) {
+    pub fn update_focus_timestamp(&mut self, timestamp: Duration) {
         self.most_recent_focus.replace(timestamp);
     }
 

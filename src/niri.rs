@@ -606,7 +606,7 @@ pub struct WindowMRU {
 struct PendingMruCommit {
     id: MappedId,
     token: RegistrationToken,
-    stamp: Instant,
+    stamp: Duration,
 }
 
 impl RedrawState {
@@ -1262,7 +1262,7 @@ impl State {
                     // the timestamp will be updated for `mapped`, but only
                     // after the focus lock-in period has gone by without
                     // the focus having elsewhere.
-                    let stamp = Instant::now();
+                    let stamp = get_monotonic_time();
                     let focus_id = mapped.id();
 
                     if mapped.get_focus_timestamp().is_none() {

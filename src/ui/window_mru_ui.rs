@@ -105,7 +105,7 @@ const THUMBNAIL_SELECT_ANIMATION_THRESHOLD: Duration = Duration::from_millis(500
 #[derive(Debug)]
 struct Thumbnail {
     id: MappedId,
-    timestamp: Option<Instant>,
+    timestamp: Option<Duration>,
     offset: f64,
     size: Size<f64, Logical>,
     scale: f64,

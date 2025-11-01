@@ -5,7 +5,6 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime};
 use std::{env, io, process};
 
 use anyhow::Context;
@@ -515,9 +514,7 @@ fn make_ipc_window(
         is_floating: mapped.is_floating(),
         is_urgent: mapped.is_urgent(),
         layout,
-        focus_timestamp: mapped
-            .get_focus_timestamp()
-            .map(|t| SystemTime::now() - (Instant::now() - t)),
+        focus_timestamp: mapped.get_focus_timestamp(),
     })
 }
 
