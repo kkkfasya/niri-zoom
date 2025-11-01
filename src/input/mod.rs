@@ -3613,6 +3613,27 @@ impl State {
                                 self.niri.mru_commit();
                             }
                         }
+
+                        self.niri.layout.activate_window(&window);
+
+                        // FIXME: granular.
+                        self.niri.queue_redraw_all();
+                    } else if let Some((output, ws)) = is_overview_open
+                        .then(|| self.niri.workspace_under(false, pos))
+                        .flatten()
+                    {
+                        let ws_idx = self.niri.layout.find_workspace_by_id(ws.id()).unwrap().0;
+
+                        self.niri.layout.focus_output(&output);
+                        self.niri.layout.toggle_overview_to_workspace(ws_idx);
+
+                        // FIXME: granular.
+                        self.niri.queue_redraw_all();
+                    } else if let Some(output) = under.output {
+                        self.niri.layout.focus_output(&output);
+
+                        // FIXME: granular.
+                        self.niri.queue_redraw_all();
                     }
                     self.niri.focus_layer_surface_if_on_demand(under.layer);
                 }
