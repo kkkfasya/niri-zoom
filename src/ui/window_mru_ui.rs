@@ -47,7 +47,7 @@ use niri_config::window_rule::Match;
 use niri_config::{
     Action, Bind, Key, ModKey, Modifiers, MruDirection, MruFilter, MruScope, Trigger,
 };
-use pango::{Alignment, EllipsizeMode, FontDescription};
+use pango::{Alignment, FontDescription};
 use pangocairo::cairo::{self, ImageSurface};
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::Kind;
@@ -1485,8 +1485,7 @@ fn generate_title_texture(
     let cr = cairo::Context::new(&surface)?;
     let layout = pangocairo::functions::create_layout(&cr);
     layout.set_font_description(Some(&font));
-    layout.set_alignment(Alignment::Left);
-    layout.set_markup(title);
+    layout.set_text(title);
 
     // Use the initial surface to determine the height of the final surface
     let (text_width, height) = layout.pixel_size();
@@ -1503,8 +1502,6 @@ fn generate_title_texture(
     let cr = cairo::Context::new(&surface)?;
     let layout = pangocairo::functions::create_layout(&cr);
     layout.set_font_description(Some(&font));
-    layout.set_ellipsize(EllipsizeMode::End);
-    layout.set_alignment(Alignment::Center);
     layout.set_text(title);
 
     // set a transparent background
