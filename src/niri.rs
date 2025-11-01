@@ -167,10 +167,7 @@ use crate::ui::exit_confirm_dialog::{ExitConfirmDialog, ExitConfirmDialogRenderE
 use crate::ui::hotkey_overlay::HotkeyOverlay;
 use crate::ui::screen_transition::{self, ScreenTransition};
 use crate::ui::screenshot_ui::{OutputScreenshot, ScreenshotUi, ScreenshotUiRenderElement};
-use crate::ui::window_mru_ui::{
-    MruCloseRequest, MruCloseResponse, ThumbnailSelectionAnimation, WindowMruUi,
-    WindowMruUiRenderElement,
-};
+use crate::ui::window_mru_ui::{MruCloseRequest, WindowMruUi, WindowMruUiRenderElement};
 use crate::utils::scale::{closest_representable_scale, guess_monitor_scale};
 use crate::utils::spawning::{CHILD_DISPLAY, CHILD_ENV};
 use crate::utils::watcher::Watcher;
@@ -424,8 +421,6 @@ pub struct Niri {
     pub dynamic_cast_id_for_portal: MappedId,
 
     pending_mru_commit: Option<PendingMruCommit>,
-
-    pub thumbnail_selection_animation: Option<ThumbnailSelectionAnimation>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -2853,7 +2848,6 @@ impl Niri {
             dynamic_cast_id_for_portal: MappedId::next(),
 
             pending_mru_commit: None,
-            thumbnail_selection_animation: None,
         };
 
         niri.reset_pointer_inactivity_timer();
@@ -4281,18 +4275,6 @@ impl Niri {
                 }
             }
         }
-
-        if let Some(tsa) = self
-            .thumbnail_selection_animation
-            .take_if(|tsa| tsa.anim.is_done())
-        {
-            if let Some(tile) = self
-                .find_window_by_id(tsa.id)
-                .and_then(|window| self.layout.find_tile_by_id_mut(&window))
-            {
-                tile.skip_render = false;
-            }
-        }
     }
 
     pub fn update_render_elements(&mut self, output: Option<&Output>) {
@@ -4440,27 +4422,13 @@ impl Niri {
             return elements;
         }
 
-        // Render the open MRU UI before the Thumbnail closing animation so that
-        // the zooming thumbnail is rendered under the MRU UI's backdrop. This
-        // can happen if the UI is dismissed and re-invoked in quick succession.
-
         let mru_elements = self
             .window_mru_ui
             .render_output(self, output, renderer.as_gles_renderer())
             .into_iter()
             .map(OutputRenderElements::from);
 
-        let tsa_elements = self.thumbnail_selection_animation.as_ref().map(|tsa| {
-            tsa.render_output(self, renderer.as_gles_renderer(), output)
-                .into_iter()
-                .map(OutputRenderElements::from)
-        });
-
-        if self.window_mru_ui.is_open() {
-            elements.extend(mru_elements.chain(tsa_elements.into_iter().flatten()));
-        } else {
-            elements.extend(tsa_elements.into_iter().flatten().chain(mru_elements));
-        }
+        elements.extend(mru_elements);
 
         // Draw the hotkey overlay on top.
         if let Some(element) = self.hotkey_overlay.render(renderer, output) {
@@ -4662,7 +4630,6 @@ impl Niri {
             state.unfinished_animations_remain |= self.exit_confirm_dialog.are_animations_ongoing();
             state.unfinished_animations_remain |= self.screenshot_ui.are_animations_ongoing();
             state.unfinished_animations_remain |= self.window_mru_ui.are_animations_ongoing();
-            state.unfinished_animations_remain |= self.thumbnail_selection_animation.is_some();
             state.unfinished_animations_remain |= state.screen_transition.is_some();
 
             // Also keep redrawing if the current cursor is animated.
@@ -6535,32 +6502,8 @@ impl Niri {
     }
 
     pub fn close_mru_ui(&mut self, close_request: MruCloseRequest) -> Option<Window> {
-        // If there was another thumbnail selection animation in progress,
-        // mark the corresponding tile for regular rendering.
-        let old_tsa = self.thumbnail_selection_animation.take();
-        if let Some(old_tile) = old_tsa
-            .and_then(|tsa| self.find_window_by_id(tsa.id))
-            .and_then(|window| self.layout.find_tile_by_id_mut(&window))
-        {
-            old_tile.skip_render = false;
-        }
-
-        match self.window_mru_ui.close(close_request)? {
-            MruCloseResponse::Id(id) => self.find_window_by_id(id),
-            MruCloseResponse::Animation(tsa) => {
-                let id = tsa.id;
-                self.thumbnail_selection_animation = Some(*tsa);
-                let window = self.find_window_by_id(id);
-                if let Some(ref window) = window {
-                    // Mark the tile corresponding to the thumbnail as to-be-skipped
-                    // during regular Tile rendering.
-                    if let Some(tile) = self.layout.find_tile_by_id_mut(window) {
-                        tile.skip_render = true;
-                    }
-                }
-                window
-            }
-        }
+        let id = self.window_mru_ui.close(close_request)?;
+        self.find_window_by_id(id)
     }
 
     // Consume the active `PendingMruCommit`, if any, and use the information

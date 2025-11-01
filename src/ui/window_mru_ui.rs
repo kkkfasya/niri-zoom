@@ -39,7 +39,7 @@ use std::cell::RefCell;
 use std::ops::ControlFlow;
 use std::rc::Rc;
 use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{iter, mem};
 
 use niri_config::utils::RegexEq;
@@ -59,17 +59,14 @@ use smithay::utils::{Coordinate, Logical, Point, Rectangle, Scale, Size, Transfo
 
 use crate::animation::{Animation, Clock};
 use crate::layout::focus_ring::{FocusRing, FocusRingRenderElement};
-use crate::layout::monitor::Monitor;
-use crate::layout::tile::Tile;
 use crate::layout::{LayoutElement, Options};
 use crate::niri::Niri;
 use crate::niri_render_elements;
-use crate::render_helpers::offscreen::OffscreenBuffer;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::surface::render_snapshot_from_surface_tree;
 use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
-use crate::render_helpers::{render_to_texture, RenderTarget, ToRenderElement};
+use crate::render_helpers::{render_to_texture, ToRenderElement};
 use crate::utils::{output_size, to_physical_precise_round, with_toplevel_role};
 use crate::window::mapped::MappedId;
 use crate::window::{window_matches, Mapped, ResolvedWindowRules, WindowRef};
@@ -97,10 +94,6 @@ const BACKGROUND: Color32F = Color32F::new(0., 0., 0., 0.7);
 
 // Font used to render window titles
 const FONT: &str = "sans 14px";
-
-// Minimum duration the MRU UI needs to have stayed opened for the Thumbnail
-// selection animation to be triggered
-const THUMBNAIL_SELECT_ANIMATION_THRESHOLD: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
 struct Thumbnail {
@@ -396,14 +389,8 @@ pub struct Inner {
     /// Configurable properties of the layout.
     options: Rc<Options>,
 
-    /// Timestamp when the UI was opened
-    open_timestamp: Instant,
-
     /// Output the UI was opened on
     output: Output,
-
-    /// Animate thumbnail selection to warp to the corresponding tile
-    enable_selection_animation: bool,
 
     /// Scope panel textures for each variant of Scope
     // The array size could be set using std::mem::variant_count, but it
@@ -518,11 +505,6 @@ pub enum MruCloseRequest {
     Selection(SelectedThumbnail),
 }
 
-pub enum MruCloseResponse {
-    Id(MappedId),
-    Animation(Box<ThumbnailSelectionAnimation>),
-}
-
 niri_render_elements! {
     WindowMruUiRenderElement => {
         SolidColor = SolidColorRenderElement,
@@ -557,7 +539,6 @@ impl WindowMruUi {
         mut wmru: WindowMru,
         dir: MruDirection,
         output: Output,
-        enable_selection_animation: bool,
     ) {
         if self.is_open() {
             return;
@@ -593,9 +574,7 @@ impl WindowMruUi {
             open_animation: open_anim,
             move_animation: None,
             clock,
-            open_timestamp: Instant::now(),
             output,
-            enable_selection_animation,
             scope_panel: RefCell::new(None),
         };
 
@@ -603,7 +582,7 @@ impl WindowMruUi {
         self.advance(dir);
     }
 
-    pub fn close(&mut self, close_request: MruCloseRequest) -> Option<MruCloseResponse> {
+    pub fn close(&mut self, close_request: MruCloseRequest) -> Option<MappedId> {
         if !self.is_open() {
             return None;
         }
@@ -1223,34 +1202,6 @@ impl Inner {
         }
     }
 
-    /// Return the window Id and screen position of the thumbnail at the given WindowMru index.
-    /// The thumbnail texture is _taken_ from the texture cache if [take] is true.
-    fn get_thumbnail_data(&self, idx: usize, take: bool) -> Option<ThumbnailData> {
-        let thumbnail = self.wmru.thumbnails.get(idx)?;
-
-        let binding = &mut self.textures.borrow_mut();
-        let texture = &mut binding.get_mut(idx)?.thumbnail;
-        let size = if take {
-            texture.take().map(|t| t.logical_size())
-        } else {
-            texture.as_ref().map(|t| t.logical_size())
-        }?;
-
-        let view_offset = self.view_offset?
-            + self
-                .move_animation
-                .as_ref()
-                .map(|ma| ma.from * ma.anim.value())
-                .unwrap_or(0.);
-
-        Some(ThumbnailData {
-            id: thumbnail.id,
-            offset: -view_offset + thumbnail.offset + thumbnail.render_offset(),
-            scale: thumbnail.scale,
-            size,
-        })
-    }
-
     fn are_animations_ongoing(&self) -> bool {
         (!self.open_animation.is_done())
             || self
@@ -1293,46 +1244,15 @@ impl Inner {
     }
 
     /// Generate a response to an MruCloseRequest
-    fn build_close_response(&self, close_request: MruCloseRequest) -> Option<MruCloseResponse> {
-        let Inner {
-            clock,
-            wmru,
-            open_timestamp,
-            ..
-        } = self;
+    fn build_close_response(&self, close_request: MruCloseRequest) -> Option<MappedId> {
+        let Inner { wmru, .. } = self;
 
-        // Determine if we will be returning an Animation. If so, the selected
-        // thumbnail's texture needs to be removed from the cache to prevent the
-        // MRU UI's closing animation from doing a fade out of that thumbnail
-        // (because a ThumbnailSelectionAnimation will take over that part of
-        // the transition).
-        let use_anim = self.enable_selection_animation
-            && Instant::now() - *open_timestamp >= THUMBNAIL_SELECT_ANIMATION_THRESHOLD;
-
-        let current_idx = wmru.current;
-        let prepare_response = move |idx| {
-            let thumb = self.get_thumbnail_data(idx, use_anim)?;
-
-            if use_anim {
-                let clock = clock.clone();
-                let mon_view = Rectangle::new(
-                    self.output.current_location().to_f64(),
-                    output_size(&self.output),
-                );
-                let config = self.options.animations.window_mru_ui_open_close.0;
-                Some(MruCloseResponse::Animation(Box::new(
-                    ThumbnailSelectionAnimation::new(thumb, clock.clone(), mon_view, config),
-                )))
-            } else {
-                Some(MruCloseResponse::Id(thumb.id))
-            }
+        let idx = match close_request {
+            MruCloseRequest::Cancelled => return None,
+            MruCloseRequest::Current => wmru.current,
+            MruCloseRequest::Selection(selected) => selected.0,
         };
-
-        match close_request {
-            MruCloseRequest::Cancelled => None,
-            MruCloseRequest::Current => prepare_response(current_idx),
-            MruCloseRequest::Selection(selected) => prepare_response(selected.0),
-        }
+        wmru.get_id(idx)
     }
 
     // Adapted from tile.rs.
@@ -1782,181 +1702,6 @@ impl ClosingThumbnail {
 
 #[derive(Debug)]
 pub struct SelectedThumbnail(usize);
-
-#[derive(Debug)]
-struct ThumbnailData {
-    /// Id of the window the thumbnail corresponds to.
-    id: MappedId,
-
-    /// Most recent view offset of the thumbnail (in Monitor coordinate space).
-    offset: f64,
-
-    /// Scale used to render the thumbnail relative to its corresponding window.
-    scale: f64,
-
-    /// Logical size of the thumbnail
-    size: Size<f64, Logical>,
-}
-
-pub struct ThumbnailSelectionAnimation {
-    pub id: MappedId,
-    pub anim: Animation,
-    /// Original position of the thumbnail in global coordinate space.
-    from: Point<f64, Logical>,
-    /// Original scale applied to the thumbnail.
-    from_scale: f64,
-    /// Buffer into which the animated tile is rendered.
-    offscreen: OffscreenBuffer,
-}
-
-impl ThumbnailSelectionAnimation {
-    fn new(
-        thumb: ThumbnailData,
-        clock: Clock,
-        mon_view: Rectangle<f64, Logical>,
-        config: niri_config::Animation,
-    ) -> Self {
-        // let mon_view = Rectangle::new(mon.output().current_location().to_f64(), mon.view_size());
-        ThumbnailSelectionAnimation {
-            id: thumb.id,
-            anim: Animation::new(clock, 1., 0., 0., config),
-            from: mon_view.loc
-                + Point::<f64, Logical>::from((
-                    thumb.offset,
-                    (mon_view.size.h - thumb.size.h) / 2.,
-                )),
-            from_scale: thumb.scale,
-            offscreen: OffscreenBuffer::default(),
-        }
-    }
-
-    fn render_params<'n>(&self, niri: &'n Niri) -> Option<ThumbnailAnimationRenderParameters<'n>> {
-        let (monitor, ws_idx, tile, to) = niri
-            .layout
-            .workspaces()
-            .filter_map(|(mon, idx, ws)| {
-                let mon = mon?;
-                let out = mon.output();
-
-                ws.tiles_with_render_positions()
-                    .filter_map(|(tile, pos, _)| {
-                        (tile.window().id() == self.id).then_some((
-                            mon,
-                            idx,
-                            tile,
-                            out.current_location().to_f64() + pos,
-                        ))
-                    })
-                    .next()
-            })
-            .next()?;
-
-        // Adjust location to accomodate a possible workpace switch animation.
-        let ws_adjust = monitor
-            .workspaces_with_render_geo_idx()
-            .filter_map(|((idx, _), geo)| (idx == ws_idx).then_some(geo.loc))
-            .next()?;
-
-        let to = to + ws_adjust;
-        let destination_view = Rectangle::new(to, tile.tile_size());
-
-        let scale = Scale::from(
-            (1. + (self.from_scale - 1.) * self.anim.value()).clamp(1., self.from_scale),
-        );
-        let loc = to + (self.from - to).upscale(self.anim.clamped_value());
-        let current_view = Rectangle::new(loc, tile.animated_tile_size().to_f64().downscale(scale));
-
-        Some(ThumbnailAnimationRenderParameters {
-            monitor,
-            tile,
-            destination_view,
-            current_view,
-            scale,
-        })
-    }
-
-    pub fn render_output(
-        &self,
-        niri: &Niri,
-        renderer: &mut GlesRenderer,
-        output: &Output,
-    ) -> Vec<WindowMruUiRenderElement> {
-        let mut rv = Vec::new();
-
-        // The thumbnail is rendered if its view_rect overlaps the monitor's
-        // view_rect. However a tile may have a final position within the global
-        // coordinate system that places its on a different monitor than the
-        // one associated with the tile (e.g. after a workspace switch that
-        // is triggered while the thumbnail selection animation is already in
-        // progress). This will look really confusing, so instead the thumbnail
-        // is rendered:
-        // - on a monitor if it is "moving through" that monitor's view_rect, i.e. the final
-        //   destination is **not** on that monitor
-        // - on the final destination monitor so long as its view_rect overlaps the tile's
-        //   view_rect.
-
-        if let Some(mon) = niri.layout.monitor_for_output(output) {
-            let output_view_rect =
-                Rectangle::new(mon.output().current_location().to_f64(), mon.view_size());
-
-            if let Some(trp) = self.render_params(niri) {
-                if output_view_rect.overlaps(trp.current_view)
-                    && (output == trp.monitor.output()
-                        || !output_view_rect.overlaps(trp.destination_view))
-                {
-                    let focus_ring = niri
-                        .layout
-                        .focus()
-                        .map(|m| m.id())
-                        .is_some_and(|id| id == self.id);
-
-                    let rve: Vec<_> = trp
-                        .tile
-                        .render(
-                            renderer,
-                            Point::default(),
-                            focus_ring,
-                            RenderTarget::Offscreen,
-                        )
-                        .collect();
-
-                    match self.offscreen.render(renderer, Scale::from(1.), &rve) {
-                        Ok((ore, _, _)) => {
-                            let buffer = TextureBuffer::from_texture(
-                                renderer,
-                                ore.texture().clone(),
-                                trp.scale,
-                                Transform::Normal,
-                                vec![],
-                            );
-                            let tre = TextureRenderElement::from_texture_buffer(
-                                buffer,
-                                trp.current_view.loc - output_view_rect.loc + ore.offset(),
-                                1.,
-                                None,
-                                None,
-                                Kind::Unspecified,
-                            );
-                            rv.push(PrimaryGpuTextureRenderElement(tre).into());
-                        }
-                        Err(err) => warn!(
-                            "Couldn't render tile into offscreen for thumbnail animation: {err:?}"
-                        ),
-                    }
-                }
-            }
-        }
-        rv
-    }
-}
-
-struct ThumbnailAnimationRenderParameters<'n> {
-    monitor: &'n Monitor<Mapped>,
-    tile: &'n Tile<Mapped>,
-    destination_view: Rectangle<f64, Logical>,
-    current_view: Rectangle<f64, Logical>,
-    scale: Scale<f64>,
-}
 
 /// Key bindings available when the MRU UI is open.
 /// Because the UI is closed when the Alt key is released, all bindings

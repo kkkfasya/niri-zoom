@@ -1533,18 +1533,6 @@ mod tests {
                         ),
                     },
                 ),
-                thumbnail_select: ThumbnailSelectAnim(
-                    Animation {
-                        off: false,
-                        kind: Spring(
-                            SpringParams {
-                                damping_ratio: 1.0,
-                                stiffness: 800,
-                                epsilon: 0.0001,
-                            },
-                        ),
-                    },
-                ),
             },
             gestures: Gestures {
                 dnd_edge_view_scroll: DndEdgeViewScroll {
@@ -2160,7 +2148,6 @@ mod tests {
             recent_windows: RecentWindows {
                 on: false,
                 mod_key: Alt,
-                enable_selection_animation: false,
             },
         }
         "#);
