@@ -1334,38 +1334,37 @@ impl Inner {
                 if t.offset <= view_offset + output_size.w {
                     let mut tcache = self.textures.borrow_mut();
                     let textures = tcache.get_mut(i).unwrap();
-                    if let Some(id) = wmru.get_id(i) {
-                        if let Some(thumb_texture) = textures.thumbnail(niri, renderer, t) {
-                            // let title_texture = (i == wmru.current)
-                            //     .then(|| {
-                            //         textures.title(
-                            //             niri,
-                            //             renderer,
-                            //             id,
-                            //             thumb_texture.logical_size().w as i32,
-                            //         )
-                            //     })
-                            //     .flatten();
-                            let title_texture = textures.title(
-                                niri,
-                                renderer,
-                                id,
-                                thumb_texture.logical_size().w as i32,
-                            );
-                            let loc = Point::from((
-                                t.offset + t.render_offset() - view_offset,
-                                (output_size.h - thumb_texture.logical_size().h) / 2.,
-                            ))
-                            .to_physical_precise_round(1.)
-                            .to_logical(1.);
-                            rv.extend(t.render(
-                                renderer,
-                                loc,
-                                thumb_texture,
-                                title_texture,
-                                (i == wmru.current).then_some(&self.focus_ring),
-                            ));
-                        }
+                    let id = t.id;
+                    if let Some(thumb_texture) = textures.thumbnail(niri, renderer, t) {
+                        // let title_texture = (i == wmru.current)
+                        //     .then(|| {
+                        //         textures.title(
+                        //             niri,
+                        //             renderer,
+                        //             id,
+                        //             thumb_texture.logical_size().w as i32,
+                        //         )
+                        //     })
+                        //     .flatten();
+                        let title_texture = textures.title(
+                            niri,
+                            renderer,
+                            id,
+                            thumb_texture.logical_size().w as i32,
+                        );
+                        let loc = Point::from((
+                            t.offset + t.render_offset() - view_offset,
+                            (output_size.h - thumb_texture.logical_size().h) / 2.,
+                        ))
+                        .to_physical_precise_round(1.)
+                        .to_logical(1.);
+                        rv.extend(t.render(
+                            renderer,
+                            loc,
+                            thumb_texture,
+                            title_texture,
+                            (i == wmru.current).then_some(&self.focus_ring),
+                        ));
                     }
                 } else {
                     break;
