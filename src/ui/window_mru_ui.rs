@@ -379,6 +379,8 @@ pub struct Inner {
     /// Opening Animation for the MruUi itself
     open_animation: Animation,
 
+    open_delay: Animation,
+
     /// Animation of the view offset while traversing the MRU list
     move_animation: Option<MoveAnimation>,
 
@@ -564,6 +566,15 @@ impl WindowMruUi {
             options.animations.window_mru_ui_open_close.0,
         );
 
+        let open_delay = Animation::ease(
+            clock.clone(),
+            0.,
+            1.,
+            0.,
+            150,
+            crate::animation::Curve::Linear,
+        );
+
         let inner = Inner {
             wmru,
             textures: RefCell::new(TextureCache::with_capacity(nids)),
@@ -572,6 +583,7 @@ impl WindowMruUi {
             view_offset: None,
             closing_thumbnails: vec![],
             open_animation: open_anim,
+            open_delay,
             move_animation: None,
             clock,
             output,
@@ -610,6 +622,7 @@ impl WindowMruUi {
             mut closing_thumbnails,
             view_offset,
             options,
+            open_delay,
             ..
         } = *inner;
 
@@ -634,7 +647,8 @@ impl WindowMruUi {
         ));
 
         // Update fields in `self.state` with their final values
-        let close_anim = Animation::new(clock.clone(), 1., 0., 0., config);
+        let progress = if open_delay.is_done() { 1. } else { 0. };
+        let close_anim = Animation::new(clock.clone(), progress, 0., 0., config);
         if let WindowMruUiState::Closed {
             output: out,
             close_animation: anim,
@@ -1075,10 +1089,14 @@ impl WindowMruUi {
                 close_animation.clamped_value()
             }
             WindowMruUiState::Open(ref inner) => {
-                if *output == inner.output {
-                    rv.extend(inner.render(niri, renderer, output));
+                if inner.open_delay.is_done() {
+                    if *output == inner.output {
+                        rv.extend(inner.render(niri, renderer, output));
+                    }
+                    1.
+                } else {
+                    return rv;
                 }
-                inner.open_animation.clamped_value()
             }
         };
 
