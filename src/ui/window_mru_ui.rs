@@ -336,7 +336,7 @@ type MruTexture = TextureBuffer<GlesTexture>;
 
 pub struct WindowMruUi {
     state: WindowMruUiState,
-    mod_key: ModKey,
+    cached_mod_key: ModKey,
     cached_bindings: Option<Vec<Bind>>,
     cached_opened_bindings: Option<Vec<Bind>>,
 }
@@ -516,9 +516,10 @@ niri_render_elements! {
 }
 
 impl WindowMruUi {
-    pub fn new(config: &niri_config::RecentWindows) -> Self {
+    pub fn new() -> Self {
         Self {
-            mod_key: config.mod_key,
+            // The value here doesn't matter.
+            cached_mod_key: ModKey::Alt,
             cached_bindings: None,
             cached_opened_bindings: None,
             state: WindowMruUiState::Closed {
@@ -664,13 +665,6 @@ impl WindowMruUi {
             unreachable!();
         };
         response
-    }
-
-    pub fn update_config(&mut self, config: &niri_config::Config) {
-        // invalidate cached key bindings
-        self.mod_key = config.recent_windows.mod_key;
-        self.cached_bindings = None;
-        self.cached_opened_bindings = None;
     }
 
     pub fn advance(&mut self, dir: MruDirection) {
@@ -1148,8 +1142,14 @@ impl WindowMruUi {
         }
     }
 
-    pub fn bindings(&mut self) -> impl Iterator<Item = &Bind> {
-        let modifiers = self.mod_key.to_modifiers();
+    pub fn bindings(&mut self, mod_key: ModKey) -> impl Iterator<Item = &Bind> {
+        if self.cached_mod_key != mod_key {
+            self.cached_mod_key = mod_key;
+            self.cached_bindings = None;
+            self.cached_opened_bindings = None;
+        }
+
+        let modifiers = mod_key.to_modifiers();
         let apply_modkey = move |mut bind: Bind| {
             bind.key.modifiers |= modifiers;
             bind

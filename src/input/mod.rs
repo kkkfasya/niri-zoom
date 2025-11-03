@@ -384,6 +384,7 @@ impl State {
         consumed_by_a11y: &mut bool,
     ) {
         let mod_key = self.backend.mod_key(&self.niri.config.borrow());
+        let mru_mod_key = self.backend.mru_mod_key(&self.niri.config.borrow());
 
         let serial = SERIAL_COUNTER.next_serial();
         let time = Event::time_msec(&event);
@@ -407,10 +408,7 @@ impl State {
         }
 
         let is_inhibiting_shortcuts = self.is_inhibiting_shortcuts();
-        let (mru_ui_enabled, mru_mod_key) = {
-            let config = &self.niri.config.borrow().recent_windows;
-            (config.on, config.mod_key)
-        };
+        let mru_ui_enabled = self.niri.config.borrow().recent_windows.on;
 
         // Accessibility modifier grabs should override XKB state changes (e.g. Caps Lock), so we
         // need to process them before keyboard.input() below.
@@ -486,7 +484,7 @@ impl State {
                         .then_some(config.binds.into_iter());
 
                     let mru_ui_bindings =
-                        mru_ui_enabled.then_some(this.niri.window_mru_ui.bindings());
+                        mru_ui_enabled.then_some(this.niri.window_mru_ui.bindings(mru_mod_key));
 
                     let bindings = bindings
                         .into_iter()

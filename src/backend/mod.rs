@@ -108,6 +108,20 @@ impl Backend {
         }
     }
 
+    pub fn mru_mod_key(&self, config: &Config) -> ModKey {
+        match self {
+            Backend::Winit(_) => {
+                if config.recent_windows.mod_key == ModKey::Alt {
+                    // Avoid conflicts with host bindings such as Super+Q or Super+W, etc.
+                    ModKey::Ctrl
+                } else {
+                    ModKey::Alt
+                }
+            }
+            Backend::Tty(_) | Backend::Headless(_) => config.recent_windows.mod_key,
+        }
+    }
+
     pub fn change_vt(&mut self, vt: i32) {
         match self {
             Backend::Tty(tty) => tty.change_vt(vt),
