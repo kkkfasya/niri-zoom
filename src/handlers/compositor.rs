@@ -338,6 +338,7 @@ impl CompositorHandler for State {
                 }
 
                 // The toplevel remains mapped.
+                self.niri.window_mru_ui.update_window(&self.niri.layout, id);
                 self.niri.layout.update_window(&window, serial);
 
                 // Move the toplevel according to the attach offset.
@@ -371,6 +372,9 @@ impl CompositorHandler for State {
             let window = mapped.window.clone();
             let output = output.cloned();
             window.on_commit();
+            self.niri
+                .window_mru_ui
+                .update_window(&self.niri.layout, mapped.id());
             self.niri.layout.update_window(&window, None);
             if let Some(output) = output {
                 self.niri.queue_redraw(&output);

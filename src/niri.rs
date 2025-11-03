@@ -4422,7 +4422,7 @@ impl Niri {
 
         let mru_elements = self
             .window_mru_ui
-            .render_output(self, output, renderer.as_gles_renderer())
+            .render_output(self, output, renderer, target)
             .into_iter()
             .map(OutputRenderElements::from);
 
@@ -6563,7 +6563,7 @@ niri_render_elements! {
         NamedPointer = MemoryRenderBufferRenderElement<R>,
         SolidColor = SolidColorRenderElement,
         ScreenshotUi = ScreenshotUiRenderElement,
-        WindowMruUi = WindowMruUiRenderElement,
+        WindowMruUi = WindowMruUiRenderElement<R>,
         ExitConfirmDialog = ExitConfirmDialogRenderElement,
         Texture = PrimaryGpuTextureRenderElement,
         // Used for the CPU-rendered panels.

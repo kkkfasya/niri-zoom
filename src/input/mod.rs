@@ -2286,35 +2286,15 @@ impl State {
             Action::MruAdvance(dir, scope, filter) => {
                 if self.niri.config.borrow().recent_windows.on {
                     if self.niri.window_mru_ui.is_open() {
-                        if let Some(wmru) = self
-                            .niri
-                            .window_mru_ui
-                            .derive_new_mru_list(&self.niri, scope, filter)
-                        {
-                            // Traversal configuration changed while the UI was open.
-                            // The wmru list needs to be refreshed (this can't be done directly
-                            // using a mut call to window_mru_ui because we would need to also pass
-                            // in a ref to niri, so the process is broken down into two steps:
-                            // 1. generate a new WindowMru 2. pass that into the WindowMruUi).
-                            self.niri.window_mru_ui.update_mru_list(Some(dir), wmru);
-                        } else {
-                            self.niri.window_mru_ui.advance(dir);
-                        }
+                        self.niri.window_mru_ui.advance(Some(dir), scope, filter);
                     } else {
                         self.niri.mru_commit();
-                        // For now opt for the simple solution and just close the overview rather
-                        // than figuring out how to cleanly deal with the
-                        // overview zoom combined with the MRU UI.
-                        self.niri.layout.close_overview();
                         let config = self.niri.config.borrow();
-                        let previous_scope = self.niri.window_mru_ui.scope();
-                        let wmru = WindowMru::new(
-                            &self.niri,
-                            scope.or(Some(previous_scope)),
-                            filter,
-                            self.niri.clock.clone(),
-                        );
-                        if let Some(wmru) = wmru {
+                        let scope = scope.unwrap_or(self.niri.window_mru_ui.scope());
+                        let mut wmru = WindowMru::new(&self.niri);
+                        if !wmru.is_empty() {
+                            wmru.set_scope_and_filter(scope, filter);
+
                             if let Some(output) = self.niri.layout.active_output() {
                                 self.niri.window_mru_ui.open(
                                     Rc::new(Options::from_config(&config)),
@@ -2363,31 +2343,18 @@ impl State {
             Action::MruChangeScope(scope) => {
                 if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
                 {
-                    if let Some(wmru) =
-                        self.niri
-                            .window_mru_ui
-                            .derive_new_mru_list(&self.niri, Some(scope), None)
-                    {
-                        self.niri.window_mru_ui.update_mru_list(None, wmru);
-                        // FIXME: granular
-                        self.niri.queue_redraw_all();
-                    }
+                    self.niri.window_mru_ui.advance(None, Some(scope), None);
+                    // FIXME: granular
+                    self.niri.queue_redraw_all();
                 }
             }
             Action::MruCycleScope(direction) => {
                 if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
                 {
                     let scope = self.niri.window_mru_ui.scope().cycle(direction);
-
-                    if let Some(wmru) =
-                        self.niri
-                            .window_mru_ui
-                            .derive_new_mru_list(&self.niri, Some(scope), None)
-                    {
-                        self.niri.window_mru_ui.update_mru_list(None, wmru);
-                        // FIXME: granular
-                        self.niri.queue_redraw_all();
-                    }
+                    self.niri.window_mru_ui.advance(None, Some(scope), None);
+                    // FIXME: granular
+                    self.niri.queue_redraw_all();
                 }
             }
         }

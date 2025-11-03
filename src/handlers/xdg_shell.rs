@@ -883,8 +883,8 @@ impl XdgShellHandler for State {
         let active_window = self.niri.layout.focus().map(|m| &m.window);
         let was_active = active_window == Some(&window);
 
-        self.niri.layout.remove_window(&window, transaction.clone());
         self.niri.window_mru_ui.remove_window(id);
+        self.niri.layout.remove_window(&window, transaction.clone());
         self.add_default_dmabuf_pre_commit_hook(surface.wl_surface());
 
         // If this is the only instance, then this transaction will complete immediately, so no
