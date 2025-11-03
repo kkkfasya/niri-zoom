@@ -2428,9 +2428,8 @@ impl State {
                 if Some(output) != self.niri.window_mru_ui.output() {
                     return;
                 }
-                if let Some(thumbnail) = self.niri.window_mru_ui.thumbnail_under(pos_within_output)
-                {
-                    self.niri.window_mru_ui.set_current(&thumbnail);
+                if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
+                    self.niri.window_mru_ui.set_current(id);
                 }
             }
         } else {
@@ -2660,9 +2659,8 @@ impl State {
                 if Some(output) != self.niri.window_mru_ui.output() {
                     return;
                 }
-                if let Some(thumbnail) = self.niri.window_mru_ui.thumbnail_under(pos_within_output)
-                {
-                    self.niri.window_mru_ui.set_current(&thumbnail);
+                if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
+                    self.niri.window_mru_ui.set_current(id);
                 }
             }
         } else {
@@ -2769,12 +2767,10 @@ impl State {
                     let location = pointer.current_location();
                     let (output, pos_within_output) = self.niri.output_under(location).unwrap();
                     if Some(output) == self.niri.window_mru_ui.output() {
-                        if let Some(thumbnail) =
-                            self.niri.window_mru_ui.thumbnail_under(pos_within_output)
+                        if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output)
                         {
-                            if let Some(window) = self
-                                .niri
-                                .close_mru_ui(MruCloseRequest::Selection(thumbnail))
+                            if let Some(window) =
+                                self.niri.close_mru_ui(MruCloseRequest::Selection(id))
                             {
                                 self.focus_window(&window);
                             }
@@ -4048,12 +4044,8 @@ impl State {
         if self.niri.window_mru_ui.is_open() {
             let (output, pos_within_output) = self.niri.output_under(pos).unwrap();
             if Some(output) == self.niri.window_mru_ui.output() {
-                if let Some(thumbnail) = self.niri.window_mru_ui.thumbnail_under(pos_within_output)
-                {
-                    if let Some(window) = self
-                        .niri
-                        .close_mru_ui(MruCloseRequest::Selection(thumbnail))
-                    {
+                if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
+                    if let Some(window) = self.niri.close_mru_ui(MruCloseRequest::Selection(id)) {
                         self.focus_window(&window);
                     } else {
                         self.niri.close_mru_ui(MruCloseRequest::Cancelled);

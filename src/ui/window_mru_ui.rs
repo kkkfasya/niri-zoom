@@ -309,9 +309,12 @@ impl WindowMru {
         self.thumbnails.get(self.current)
     }
 
-    fn set_current(&mut self, SelectedThumbnail(pos): &SelectedThumbnail) {
-        if *pos < self.thumbnails.len() {
-            self.current = *pos;
+    fn set_current(&mut self, id: MappedId) {
+        for (idx, thumbnail) in self.thumbnails.iter().enumerate() {
+            if thumbnail.id == id {
+                self.current = idx;
+                return;
+            }
         }
     }
 
@@ -504,7 +507,7 @@ impl MruCycle for MruScope {
 pub enum MruCloseRequest {
     Cancelled,
     Current,
-    Selection(SelectedThumbnail),
+    Selection(MappedId),
 }
 
 niri_render_elements! {
@@ -677,11 +680,11 @@ impl WindowMruUi {
         }
     }
 
-    pub fn set_current(&mut self, thumb: &SelectedThumbnail) {
-        let WindowMruUiState::Open(ref mut inner) = self.state else {
+    pub fn set_current(&mut self, id: MappedId) {
+        let WindowMruUiState::Open(inner) = &mut self.state else {
             return;
         };
-        inner.wmru.set_current(thumb);
+        inner.wmru.set_current(id);
     }
 
     pub fn derive_new_mru_list(
@@ -1184,15 +1187,15 @@ impl WindowMruUi {
         }
     }
 
-    pub fn thumbnail_under(&self, pos: Point<f64, Logical>) -> Option<SelectedThumbnail> {
-        let WindowMruUiState::Open(ref inner) = self.state else {
+    pub fn thumbnail_under(&self, pos: Point<f64, Logical>) -> Option<MappedId> {
+        let WindowMruUiState::Open(inner) = &self.state else {
             return None;
         };
 
         let view_offset = inner.view_offset?;
         let output_size = output_size(self.output()?);
 
-        for (idx, thumb) in inner.wmru.thumbnails.iter().enumerate() {
+        for thumb in &inner.wmru.thumbnails {
             if Rectangle::new(
                 Point::from((
                     thumb.offset - view_offset,
@@ -1202,7 +1205,7 @@ impl WindowMruUi {
             )
             .contains(pos)
             {
-                return Some(SelectedThumbnail(idx));
+                return Some(thumb.id);
             }
         }
 
@@ -1265,12 +1268,11 @@ impl Inner {
     fn build_close_response(&self, close_request: MruCloseRequest) -> Option<MappedId> {
         let Inner { wmru, .. } = self;
 
-        let idx = match close_request {
-            MruCloseRequest::Cancelled => return None,
-            MruCloseRequest::Current => wmru.current,
-            MruCloseRequest::Selection(selected) => selected.0,
-        };
-        wmru.get_id(idx)
+        match close_request {
+            MruCloseRequest::Cancelled => None,
+            MruCloseRequest::Current => wmru.get_id(wmru.current),
+            MruCloseRequest::Selection(id) => Some(id),
+        }
     }
 
     // Adapted from tile.rs.
@@ -1713,9 +1715,6 @@ impl ClosingThumbnail {
         !self.anim.is_done()
     }
 }
-
-#[derive(Debug)]
-pub struct SelectedThumbnail(usize);
 
 /// Key bindings available when the MRU UI is open.
 /// Because the UI is closed when the Alt key is released, all bindings
