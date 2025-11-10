@@ -5,7 +5,8 @@ use std::{iter, mem};
 
 use anyhow::ensure;
 use niri_config::{
-    Action, Bind, CornerRadius, Key, ModKey, Modifiers, MruDirection, MruFilter, MruScope, Trigger,
+    Action, Bind, Color, CornerRadius, Key, ModKey, Modifiers, MruDirection, MruFilter, MruScope,
+    Trigger,
 };
 use pango::{Alignment, FontDescription};
 use pangocairo::cairo::{self, ImageSurface};
@@ -55,11 +56,20 @@ const PREVIEW_MAX_HEIGHT: f64 = 480.;
 /// confusion.
 const PREVIEW_MAX_SCALE: f64 = 0.5;
 
+/// Padding from window preview to the border.
+const PADDING: f64 = 30.;
+
+/// Border width on the selected window preview.
+const BORDER: f64 = 2.;
+
+/// Gap from the window preview to the window title.
+const TITLE_GAP: f64 = 14.;
+
 /// Gap between thumbnails.
-const GAP: f64 = 50.;
+const GAP: f64 = 16.;
 
 /// How much of the next window will always peek from the side of the screen.
-const STRUT: f64 = 100.;
+const STRUT: f64 = 192.;
 
 /// Padding in the scope indication panel.
 const PANEL_PADDING: i32 = 8;
@@ -88,6 +98,8 @@ struct Thumbnail {
     open_animation: Option<Animation>,
     move_animation: Option<MoveAnimation>,
     title_texture: RefCell<TitleTexture>,
+    background_buffer: RefCell<SolidColorBuffer>,
+    border: RefCell<FocusRing>,
 }
 
 impl Thumbnail {
@@ -162,12 +174,16 @@ impl Thumbnail {
         &self,
         renderer: &mut R,
         mapped: &Mapped,
-        thumb_geo: Rectangle<f64, Logical>,
+        preview_geo: Rectangle<f64, Logical>,
         scale: f64,
         target: RenderTarget,
-        focus_ring: Option<&FocusRing>,
+        is_active: bool,
     ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> {
         let _span = tracy_client::span!("Thumbnail::render");
+
+        let round = move |logical: f64| round_logical_in_physical(scale, logical);
+        let padding = round(PADDING);
+        let title_gap = round(TITLE_GAP);
 
         let s = Scale::from(scale);
 
@@ -207,33 +223,38 @@ impl Thumbnail {
         });
 
         let elems = elems.map(move |elem| {
-            let thumb_scale =
-                f64::min(thumb_geo.size.w / geo.size.w, thumb_geo.size.h / geo.size.h);
+            let thumb_scale = f64::min(
+                preview_geo.size.w / geo.size.w,
+                preview_geo.size.h / geo.size.h,
+            );
             let offset = Point::new(
-                thumb_geo.size.w - (geo.size.w * thumb_scale),
-                thumb_geo.size.h - (geo.size.h * thumb_scale),
+                preview_geo.size.w - (geo.size.w * thumb_scale),
+                preview_geo.size.h - (geo.size.h * thumb_scale),
             )
             .downscale(2.);
             let elem = RescaleRenderElement::from_element(elem, Point::new(0, 0), thumb_scale);
             let elem = RelocateRenderElement::from_element(
                 elem,
-                (thumb_geo.loc + offset).to_physical_precise_round(scale),
+                (preview_geo.loc + offset).to_physical_precise_round(scale),
                 Relocate::Relative,
             );
             WindowMruUiRenderElement::Thumbnail(elem)
         });
 
+        let mut title_size = None;
         let title_texture = self.title_texture(renderer.as_gles_renderer(), mapped, scale);
         let title_elems = title_texture.map(|title_texture| {
-            let mut title_size = title_texture.logical_size();
-            title_size.w = f64::min(title_size.w, thumb_geo.size.w);
+            let mut size = title_texture.logical_size();
+            size.w = f64::min(size.w, preview_geo.size.w);
             // TODO: fade end if doesn't fit.
-            let src = Rectangle::from_size(title_size);
+            let src = Rectangle::from_size(size);
 
-            let loc = thumb_geo.loc
+            title_size = Some(size);
+
+            let loc = preview_geo.loc
                 + Point::new(
-                    (thumb_geo.size.w - title_size.w) / 2.,
-                    thumb_geo.size.h + 16.,
+                    (preview_geo.size.w - size.w) / 2.,
+                    preview_geo.size.h + title_gap,
                 );
             let loc = loc.to_physical_precise_round(scale).to_logical(scale);
             let elem = PrimaryGpuTextureRenderElement(TextureRenderElement::from_texture_buffer(
@@ -247,15 +268,48 @@ impl Thumbnail {
             WindowMruUiRenderElement::TextureElement(elem)
         });
 
-        let focus_ring_elems = focus_ring
-            .map(move |x| {
-                x.render(renderer, thumb_geo.loc)
-                    .map(WindowMruUiRenderElement::FocusRing)
-            })
-            .into_iter()
-            .flatten();
+        let background_elems = is_active.then(|| {
+            let padding = Point::new(padding, padding);
 
-        elems.chain(title_elems).chain(focus_ring_elems)
+            let mut size = preview_geo.size;
+            size += padding.to_size().upscale(2.);
+
+            if let Some(title_size) = title_size {
+                size.h += title_gap + title_size.h;
+                // Subtract half the padding so it looks more balanced visually.
+                size.h -= padding.y / 2.;
+            }
+
+            let mut buffer = self.background_buffer.borrow_mut();
+            buffer.resize(size);
+
+            let loc = preview_geo.loc - padding;
+            let elem = SolidColorRenderElement::from_buffer(&buffer, loc, 0.2, Kind::Unspecified);
+            let elem = WindowMruUiRenderElement::SolidColor(elem);
+
+            let mut border = self.border.borrow_mut();
+            let mut config = *border.config();
+            config.width = round(BORDER);
+            border.update_config(config);
+            border.update_render_elements(
+                size,
+                true,
+                true,
+                false,
+                Rectangle::default(),
+                CornerRadius::default(),
+                scale,
+                0.4,
+            );
+
+            let elems = border
+                .render(renderer, loc)
+                .map(WindowMruUiRenderElement::FocusRing);
+            elems.chain([elem])
+        });
+        let background_elems = background_elems.into_iter().flatten();
+
+        elems.chain(title_elems).chain(background_elems)
     }
 }
 
@@ -292,6 +346,17 @@ impl WindowMru {
             for mapped in ws.windows() {
                 let app_id = with_toplevel_role(mapped.toplevel(), |role| role.app_id.clone());
 
+                let border = FocusRing::new(niri_config::FocusRing {
+                    off: false,
+                    width: 0.,
+                    active_color: Color::new_unpremul(1., 1., 1., 1.),
+                    inactive_color: Color::default(),
+                    urgent_color: Color::default(),
+                    active_gradient: None,
+                    inactive_gradient: None,
+                    urgent_gradient: None,
+                });
+
                 let thumbnail = Thumbnail {
                     id: mapped.id(),
                     timestamp: mapped.get_focus_timestamp(),
@@ -303,6 +368,11 @@ impl WindowMru {
                     open_animation: None,
                     move_animation: None,
                     title_texture: Default::default(),
+                    background_buffer: RefCell::new(SolidColorBuffer::new(
+                        (0., 0.),
+                        [1., 1., 1., 1.],
+                    )),
+                    border: RefCell::new(border),
                 };
                 thumbnails.push(thumbnail);
             }
@@ -545,9 +615,6 @@ pub struct Inner {
     /// List of Window Ids to display in the MRU UI.
     wmru: WindowMru,
 
-    /// FocusRing object used for the current MRU UI selection.
-    focus_ring: FocusRing,
-
     /// View position relative to the leftmost visible window.
     view_pos: ViewPos,
 
@@ -716,7 +783,6 @@ impl WindowMruUi {
 
         let mut inner = Inner {
             wmru,
-            focus_ring: FocusRing::new(options.layout.focus_ring),
             options,
             view_pos: ViewPos::Static(0.),
             closing_thumbnails: vec![],
@@ -882,50 +948,6 @@ impl WindowMruUi {
 
         if inner.wmru.thumbnails.is_empty() {
             self.close(MruCloseRequest::Cancelled);
-        }
-    }
-
-    pub fn update_render_elements(&mut self, output: &Output) {
-        let WindowMruUiState::Open(ref mut inner) = self.state else {
-            return;
-        };
-
-        let scale = output.current_scale().fractional_scale();
-
-        if let Some(id) = inner.wmru.current_id {
-            // TODO: copy color logic from the tab indicator.
-            // TODO: no need to walk the positions here.
-            let x = inner.thumbnails().find_map(|(thumbnail, geo)| {
-                (thumbnail.id == id).then(move || {
-                    let alpha = thumbnail
-                        .open_animation
-                        .as_ref()
-                        .map_or(1., |a| a.clamped_value() as f32)
-                        .clamp(0., 1.);
-                    (geo.size, alpha)
-                })
-            });
-            if let Some((size, alpha)) = x {
-                // let rules = mapped.rules();
-                let draw_border_with_background = false;
-                // let draw_border_with_background = rules
-                //     .draw_border_with_background
-                //     .unwrap_or_else(|| !mapped.has_ssd());
-
-                // TODO round width to physical
-                inner.focus_ring.update_render_elements(
-                    size,
-                    true,
-                    !draw_border_with_background,
-                    false,
-                    Rectangle::default(), // TODO for gradients
-                    CornerRadius::default(),
-                    scale,
-                    alpha,
-                );
-            } else {
-                error!("window in the MRU must be present in the layout");
-            }
         }
     }
 
@@ -1319,6 +1341,7 @@ impl Inner {
         let round = move |logical: f64| round_logical_in_physical(scale, logical);
 
         let gap = round(GAP);
+        let padding = (round(PADDING) + round(BORDER)) * 2.;
 
         let mut x = 0.;
         self.wmru.thumbnails().map(move |thumbnail| {
@@ -1326,7 +1349,7 @@ impl Inner {
             let y = round((output_size.h - size.h) / 2.);
 
             let loc = Point::new(x, y);
-            x += size.w + gap;
+            x += size.w + padding + gap;
 
             let geo = Rectangle::new(loc, size);
             (thumbnail, geo)
@@ -1436,8 +1459,8 @@ impl Inner {
                 continue;
             };
 
-            let focus_ring = (thumbnail.id == current_id).then_some(&self.focus_ring);
-            let elems = thumbnail.render(renderer, mapped, geo, scale, target, focus_ring);
+            let is_active = thumbnail.id == current_id;
+            let elems = thumbnail.render(renderer, mapped, geo, scale, target, is_active);
             rv.extend(elems);
         }
 
@@ -1445,7 +1468,16 @@ impl Inner {
     }
 
     fn thumbnail_under(&self, pos: Point<f64, Logical>) -> Option<MappedId> {
-        for (thumbnail, geo) in self.thumbnails_in_view_static() {
+        let scale = self.output.current_scale().fractional_scale();
+        let round = move |logical: f64| round_logical_in_physical(scale, logical);
+        let padding = round(PADDING) + round(BORDER);
+        let padding = Point::new(padding, padding);
+
+        for (thumbnail, mut geo) in self.thumbnails_in_view_static() {
+            // TODO title text height.
+            geo.loc -= padding;
+            geo.size += padding.to_size().upscale(2.);
+
             if geo.contains(pos) {
                 return Some(thumbnail.id);
             }
@@ -1975,6 +2007,8 @@ mod tests {
                 open_animation: None,
                 move_animation: None,
                 title_texture: Default::default(),
+                background_buffer: Default::default(),
+                border: RefCell::new(FocusRing::new(Default::default())),
             },
             Thumbnail {
                 id: MappedId::next(),
@@ -1987,6 +2021,8 @@ mod tests {
                 open_animation: None,
                 move_animation: None,
                 title_texture: Default::default(),
+                background_buffer: Default::default(),
+                border: RefCell::new(FocusRing::new(Default::default())),
             },
         ];
         let current_id = thumbnails.first().map(|t| t.id);
@@ -2035,6 +2071,8 @@ mod tests {
                 open_animation: None,
                 move_animation: None,
                 title_texture: Default::default(),
+                background_buffer: Default::default(),
+                border: RefCell::new(FocusRing::new(Default::default())),
             }
         }
     }

@@ -4298,10 +4298,6 @@ impl Niri {
 
                     mapped.update_render_elements(geo.size.to_f64());
                 }
-
-                if self.window_mru_ui.is_open() && Some(out) == self.layout.active_output() {
-                    self.window_mru_ui.update_render_elements(out);
-                }
             }
         }
     }
