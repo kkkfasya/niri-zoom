@@ -62,13 +62,13 @@ const GAP: f64 = 50.;
 const STRUT: f64 = 100.;
 
 /// Padding in the scope indication panel.
-const PADDING: i32 = 8;
+const PANEL_PADDING: i32 = 8;
 
 /// Border size of the scope indication panel.
-const BORDER: i32 = 4;
+const PANEL_BORDER: i32 = 4;
 
-/// Background color behind the previews.
-const BACKGROUND: Color32F = Color32F::new(0., 0., 0., 0.7);
+/// Backdrop color behind the previews.
+const BACKDROP_COLOR: Color32F = Color32F::new(0., 0., 0., 0.7);
 
 /// Font used to render the window titles.
 const FONT: &str = "sans 14px";
@@ -977,7 +977,7 @@ impl WindowMruUi {
         let progress = progress.clamp(0., 1.) as f32;
 
         // Put a panel above the current desktop view to contrast the thumbnails
-        let buffer = SolidColorBuffer::new(output_size, BACKGROUND);
+        let buffer = SolidColorBuffer::new(output_size, BACKDROP_COLOR);
 
         rv.push(
             SolidColorRenderElement::from_buffer(
@@ -1574,8 +1574,8 @@ fn make_scope_panels(renderer: &mut GlesRenderer, scale: f64) -> anyhow::Result<
 // This is a copy of screenshot_ui's render_panel
 fn make_panel(renderer: &mut GlesRenderer, scale: f64, text: &str) -> anyhow::Result<MruTexture> {
     let font = FontDescription::from_string(FONT);
-    let padding: i32 = to_physical_precise_round(scale, PADDING);
-    let border_width = (f64::from(BORDER) / 2. * scale).round() * 2.;
+    let padding: i32 = to_physical_precise_round(scale, PANEL_PADDING);
+    let border_width = (f64::from(PANEL_BORDER) / 2. * scale).round() * 2.;
     let half_border_width = (border_width / 2.) as i32;
     let spacing = to_physical_precise_round::<i32>(scale, 2) * 1024;
 
