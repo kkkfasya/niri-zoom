@@ -3987,18 +3987,7 @@ impl State {
 
         let mod_key = self.backend.mod_key(&self.niri.config.borrow());
 
-        if self.niri.window_mru_ui.is_open() {
-            let (output, pos_within_output) = self.niri.output_under(pos).unwrap();
-            if Some(output) == self.niri.window_mru_ui.output() {
-                if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
-                    if let Some(window) = self.niri.close_mru_ui(MruCloseRequest::Selection(id)) {
-                        self.focus_window(&window);
-                    } else {
-                        self.niri.close_mru_ui(MruCloseRequest::Cancelled);
-                    }
-                }
-            }
-        } else if self.niri.screenshot_ui.is_open() {
+        if self.niri.screenshot_ui.is_open() {
             if let Some(output) = under.output.clone() {
                 let geom = self.niri.global_space.output_geometry(&output).unwrap();
                 let mut point = (pos - geom.loc.to_f64())
@@ -4017,6 +4006,19 @@ impl State {
                     .pointer_down(output, point, Some(slot))
                 {
                     self.niri.queue_redraw_all();
+                }
+            }
+        } else if let Some(mru_output) = self.niri.window_mru_ui.output() {
+            if let Some((output, pos_within_output)) = self.niri.output_under(pos) {
+                if mru_output == output {
+                    if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
+                        if let Some(window) = self.niri.close_mru_ui(MruCloseRequest::Selection(id))
+                        {
+                            self.focus_window(&window);
+                        } else {
+                            self.niri.close_mru_ui(MruCloseRequest::Cancelled);
+                        }
+                    }
                 }
             }
         } else if !handle.is_grabbed() {
