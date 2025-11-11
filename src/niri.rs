@@ -524,6 +524,7 @@ pub enum KeyboardFocus {
     ScreenshotUi,
     ExitConfirmDialog,
     Overview,
+    Mru,
 }
 
 #[derive(Default, Clone, PartialEq)]
@@ -642,6 +643,7 @@ impl KeyboardFocus {
             KeyboardFocus::ScreenshotUi => None,
             KeyboardFocus::ExitConfirmDialog => None,
             KeyboardFocus::Overview => None,
+            KeyboardFocus::Mru => None,
         }
     }
 
@@ -653,6 +655,7 @@ impl KeyboardFocus {
             KeyboardFocus::ScreenshotUi => None,
             KeyboardFocus::ExitConfirmDialog => None,
             KeyboardFocus::Overview => None,
+            KeyboardFocus::Mru => None,
         }
     }
 
@@ -1121,6 +1124,8 @@ impl State {
             }
         } else if self.niri.screenshot_ui.is_open() {
             KeyboardFocus::ScreenshotUi
+        } else if self.niri.window_mru_ui.is_open() {
+            KeyboardFocus::Mru
         } else if let Some(output) = self.niri.layout.active_output() {
             let mon = self.niri.layout.monitor_for_output(output).unwrap();
             let layers = layer_map_for_output(output);
@@ -4133,6 +4138,7 @@ impl Niri {
             KeyboardFocus::ScreenshotUi => true,
             KeyboardFocus::ExitConfirmDialog => true,
             KeyboardFocus::Overview => true,
+            KeyboardFocus::Mru => true,
         };
 
         self.layout.refresh(layout_is_active);
