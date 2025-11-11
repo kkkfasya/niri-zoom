@@ -103,6 +103,32 @@ struct Thumbnail {
 }
 
 impl Thumbnail {
+    fn from_mapped(mapped: &Mapped, clock: Clock) -> Self {
+        let app_id = with_toplevel_role(mapped.toplevel(), |role| role.app_id.clone());
+
+        let border = FocusRing::new(niri_config::FocusRing {
+            off: false,
+            active_color: Color::new_unpremul(1., 1., 1., 1.),
+            active_gradient: None,
+            ..Default::default()
+        });
+
+        Self {
+            id: mapped.id(),
+            timestamp: mapped.get_focus_timestamp(),
+            on_current_output: false,
+            on_current_workspace: false,
+            app_id,
+            size: mapped.size(),
+            clock,
+            open_animation: None,
+            move_animation: None,
+            title_texture: Default::default(),
+            background_buffer: RefCell::new(SolidColorBuffer::new((0., 0.), [1., 1., 1., 1.])),
+            border: RefCell::new(border),
+        }
+    }
+
     fn are_animations_ongoing(&self) -> bool {
         self.open_animation.is_some() || self.move_animation.is_some()
     }
@@ -344,36 +370,9 @@ impl WindowMru {
             let on_current_workspace = on_current_output && mon.active_workspace_idx() == ws_idx;
 
             for mapped in ws.windows() {
-                let app_id = with_toplevel_role(mapped.toplevel(), |role| role.app_id.clone());
-
-                let border = FocusRing::new(niri_config::FocusRing {
-                    off: false,
-                    width: 0.,
-                    active_color: Color::new_unpremul(1., 1., 1., 1.),
-                    inactive_color: Color::default(),
-                    urgent_color: Color::default(),
-                    active_gradient: None,
-                    inactive_gradient: None,
-                    urgent_gradient: None,
-                });
-
-                let thumbnail = Thumbnail {
-                    id: mapped.id(),
-                    timestamp: mapped.get_focus_timestamp(),
-                    on_current_output,
-                    on_current_workspace,
-                    app_id,
-                    size: mapped.size(),
-                    clock: niri.clock.clone(),
-                    open_animation: None,
-                    move_animation: None,
-                    title_texture: Default::default(),
-                    background_buffer: RefCell::new(SolidColorBuffer::new(
-                        (0., 0.),
-                        [1., 1., 1., 1.],
-                    )),
-                    border: RefCell::new(border),
-                };
+                let mut thumbnail = Thumbnail::from_mapped(mapped, niri.clock.clone());
+                thumbnail.on_current_output = on_current_output;
+                thumbnail.on_current_workspace = on_current_workspace;
                 thumbnails.push(thumbnail);
             }
         }
@@ -1991,40 +1990,28 @@ mod tests {
 
     use super::*;
 
+    fn create_thumbnail() -> Thumbnail {
+        Thumbnail {
+            id: MappedId::next(),
+            timestamp: None,
+            on_current_output: false,
+            on_current_workspace: false,
+            app_id: None,
+            size: Size::new(100, 100),
+            clock: Clock::with_time(Duration::ZERO),
+            open_animation: None,
+            move_animation: None,
+            title_texture: Default::default(),
+            background_buffer: Default::default(),
+            border: RefCell::new(FocusRing::new(Default::default())),
+        }
+    }
+
     #[test]
     fn remove_last_window_out_of_two() {
         let ops = [Op::Backward, Op::Remove(1)];
 
-        let thumbnails = vec![
-            Thumbnail {
-                id: MappedId::next(),
-                timestamp: None,
-                on_current_workspace: false,
-                on_current_output: false,
-                app_id: None,
-                size: Size::new(100, 100),
-                clock: Clock::with_time(Duration::ZERO),
-                open_animation: None,
-                move_animation: None,
-                title_texture: Default::default(),
-                background_buffer: Default::default(),
-                border: RefCell::new(FocusRing::new(Default::default())),
-            },
-            Thumbnail {
-                id: MappedId::next(),
-                timestamp: None,
-                on_current_workspace: false,
-                on_current_output: false,
-                app_id: None,
-                size: Size::new(100, 100),
-                clock: Clock::with_time(Duration::ZERO),
-                open_animation: None,
-                move_animation: None,
-                title_texture: Default::default(),
-                background_buffer: Default::default(),
-                border: RefCell::new(FocusRing::new(Default::default())),
-            },
-        ];
+        let thumbnails = vec![create_thumbnail(), create_thumbnail()];
         let current_id = thumbnails.first().map(|t| t.id);
         let mut mru = WindowMru {
             thumbnails,
@@ -2060,20 +2047,12 @@ mod tests {
             on_current_workspace: bool,
             app_id in arbitrary_app_id(),
         ) -> Thumbnail {
-            Thumbnail {
-                id: MappedId::next(),
-                timestamp,
-                on_current_workspace,
-                on_current_output,
-                app_id,
-                size: Size::new(100, 100),
-                clock: Clock::with_time(Duration::ZERO),
-                open_animation: None,
-                move_animation: None,
-                title_texture: Default::default(),
-                background_buffer: Default::default(),
-                border: RefCell::new(FocusRing::new(Default::default())),
-            }
+            let mut thumbnail = create_thumbnail();
+            thumbnail.timestamp = timestamp;
+            thumbnail.on_current_workspace = on_current_workspace;
+            thumbnail.on_current_output = on_current_output;
+            thumbnail.app_id = app_id;
+            thumbnail
         }
     }
 
