@@ -44,8 +44,8 @@ use self::spatial_movement_grab::SpatialMovementGrab;
 use crate::layout::scrolling::ScrollDirection;
 use crate::layout::{ActivateWindow, LayoutElement as _, Options};
 use crate::niri::{CastTarget, PointerVisibility, State};
+use crate::ui::mru::{MruCloseRequest, MruCycle, WindowMru};
 use crate::ui::screenshot_ui::ScreenshotUi;
-use crate::ui::window_mru_ui::{MruCloseRequest, MruCycle, WindowMru};
 use crate::utils::spawning::{spawn, spawn_sh};
 use crate::utils::{center, get_monotonic_time, ResizeEdge};
 
