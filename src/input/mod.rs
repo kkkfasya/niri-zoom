@@ -2285,6 +2285,7 @@ impl State {
             }
             Action::MruAdvance(dir, scope, filter) => {
                 if self.niri.config.borrow().recent_windows.on {
+                    // TODO: don't reopen from scratch from closing state
                     if self.niri.window_mru_ui.is_open() {
                         self.niri.window_mru_ui.advance(Some(dir), scope, filter);
                     } else {

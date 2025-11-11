@@ -197,14 +197,16 @@ impl Thumbnail {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render<R: NiriRenderer>(
         &self,
         renderer: &mut R,
         mapped: &Mapped,
         preview_geo: Rectangle<f64, Logical>,
         scale: f64,
-        target: RenderTarget,
         is_active: bool,
+        alpha: f32,
+        target: RenderTarget,
     ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> {
         let _span = tracy_client::span!("Thumbnail::render");
 
@@ -214,15 +216,16 @@ impl Thumbnail {
 
         let s = Scale::from(scale);
 
-        let alpha = self
+        let preview_alpha = self
             .open_animation
             .as_ref()
             .map_or(1., |a| a.clamped_value() as f32)
-            .clamp(0., 1.);
+            .clamp(0., 1.)
+            * alpha;
 
         // TODO: offscreen
         let elems = mapped
-            .render_normal(renderer, Point::new(0., 0.), s, alpha, target)
+            .render_normal(renderer, Point::new(0., 0.), s, preview_alpha, target)
             .into_iter();
 
         // Clip thumbnails to their geometry.
@@ -287,7 +290,7 @@ impl Thumbnail {
             let texture = TextureRenderElement::from_texture_buffer(
                 title_texture,
                 loc,
-                alpha,
+                preview_alpha,
                 Some(src),
                 None,
                 Kind::Unspecified,
@@ -319,7 +322,8 @@ impl Thumbnail {
             buffer.resize(size);
 
             let loc = preview_geo.loc - padding;
-            let elem = SolidColorRenderElement::from_buffer(&buffer, loc, 0.2, Kind::Unspecified);
+            let elem =
+                SolidColorRenderElement::from_buffer(&buffer, loc, 0.2 * alpha, Kind::Unspecified);
             let elem = WindowMruUiRenderElement::SolidColor(elem);
 
             let mut border = self.border.borrow_mut();
@@ -334,7 +338,7 @@ impl Thumbnail {
                 Rectangle::default(),
                 CornerRadius::default(),
                 scale,
-                0.4,
+                0.4 * alpha,
             );
 
             let elems = border
@@ -602,20 +606,15 @@ pub struct WindowMruUi {
 }
 
 pub enum WindowMruUiState {
+    Open(Inner),
+    Closing {
+        inner: Inner,
+        anim: Animation,
+    },
     Closed {
-        /// The MRU UI's closing animation while it is in progress.
-        close_animation: Option<Animation>,
-
-        /// Thumbnails to animate while the UI closes.
-        closing_thumbnails: Vec<ClosingThumbnail>,
-
-        /// Output on which to display the closing thumbnails
-        output: Option<Output>,
-
-        /// Scope used when the UI was last opened
+        /// Scope used when the UI was last opened.
         previous_scope: MruScope,
     },
-    Open(Box<Inner>),
 }
 
 /// Opaque containing MRU UI state
@@ -634,7 +633,7 @@ pub struct Inner {
 
     /// Thumbnails linked to windows that were just closed, or to windows
     /// that no longer match the current MRU filter or scope.
-    closing_thumbnails: Vec<ClosingThumbnail>,
+    // closing_thumbnails: Vec<ClosingThumbnail>,
 
     /// Configurable properties of the layout.
     options: Rc<Options>,
@@ -766,9 +765,6 @@ impl WindowMruUi {
             cached_bindings: None,
             cached_opened_bindings: None,
             state: WindowMruUiState::Closed {
-                close_animation: None,
-                closing_thumbnails: vec![],
-                output: None,
                 previous_scope: MruScope::default(),
             },
         }
@@ -794,7 +790,7 @@ impl WindowMruUi {
             wmru,
             options,
             view_pos: ViewPos::Static(0.),
-            closing_thumbnails: vec![],
+            // closing_thumbnails: vec![],
             open_at: clock.now_unadjusted() + OPEN_DELAY,
             clock,
             output,
@@ -802,7 +798,7 @@ impl WindowMruUi {
         };
         inner.view_pos = ViewPos::Static(inner.compute_view_pos());
 
-        self.state = WindowMruUiState::Open(Box::new(inner));
+        self.state = WindowMruUiState::Open(inner);
         self.advance(Some(dir), None, None);
     }
 
@@ -813,9 +809,6 @@ impl WindowMruUi {
         let state = mem::replace(
             &mut self.state,
             WindowMruUiState::Closed {
-                output: None,
-                close_animation: None,
-                closing_thumbnails: vec![],
                 previous_scope: MruScope::default(),
             },
         );
@@ -825,58 +818,19 @@ impl WindowMruUi {
 
         let response = inner.build_close_response(close_request);
 
-        // Consume Inner
-        let Inner {
-            clock,
-            output,
-            wmru,
-            mut closing_thumbnails,
-            // view_pos,
-            options,
-            open_at,
-            ..
-        } = *inner;
-
-        if clock.now_unadjusted() < open_at {
+        if inner.clock.now_unadjusted() < inner.open_at {
             // Hasn't displayed yet, no need to fade out.
+            let WindowMruUiState::Closed { previous_scope } = &mut self.state else {
+                unreachable!()
+            };
+            *previous_scope = inner.wmru.scope;
             return response;
         }
 
-        // let textures = &mut textures.borrow_mut().0;
-        let config = options.animations.window_mru_ui_open_close.0;
+        let config = inner.options.animations.window_mru_ui_open_close.0;
 
-        // Consume visible thumbnails from Inner to convert them into ClosingThumbnails
-        // closing_thumbnails.extend(wmru.thumbnails.into_iter().enumerate().filter_map(
-        //     |(idx, thumb)| {
-        //         if let Some(texture) = textures[idx].thumbnail.take() {
-        //             let anim = Animation::new(
-        //                 clock.clone(),
-        //                 0.,
-        //                 1.,
-        //                 0.,
-        //                 options.animations.window_close.anim,
-        //             );
-        //             return ClosingThumbnail::new(thumb, texture, view_offset?, &output, anim);
-        //         }
-        //         None
-        //     },
-        // ));
-
-        let close_anim = Animation::new(clock.clone(), 1., 0., 0., config);
-        if let WindowMruUiState::Closed {
-            output: out,
-            close_animation: anim,
-            closing_thumbnails: thumbs,
-            previous_scope: scope,
-        } = &mut self.state
-        {
-            anim.replace(close_anim);
-            mem::swap(thumbs, &mut closing_thumbnails);
-            out.replace(output);
-            *scope = wmru.scope;
-        } else {
-            unreachable!();
-        };
+        let anim = Animation::new(inner.clock.clone(), 1., 0., 0., config);
+        self.state = WindowMruUiState::Closing { inner, anim };
         response
     }
 
@@ -926,7 +880,9 @@ impl WindowMruUi {
     pub fn scope(&self) -> MruScope {
         match &self.state {
             WindowMruUiState::Closed { previous_scope, .. } => *previous_scope,
-            WindowMruUiState::Open(inner) => inner.wmru.scope,
+            WindowMruUiState::Open(inner) | WindowMruUiState::Closing { inner, .. } => {
+                inner.wmru.scope
+            }
         }
     }
 
@@ -949,7 +905,7 @@ impl WindowMruUi {
             return;
         };
 
-        let Some(thumbnail) = inner.remove_window(id) else {
+        let Some(_thumbnail) = inner.remove_window(id) else {
             return;
         };
 
@@ -970,51 +926,33 @@ impl WindowMruUi {
         let mut rv = Vec::new();
         let output_size = output_size(output);
 
-        let progress = match &self.state {
-            WindowMruUiState::Closed {
-                close_animation: None,
-                ..
-            } => return vec![],
-            WindowMruUiState::Closed {
-                close_animation: Some(ref close_animation),
-                closing_thumbnails,
-                output: closing_output,
-                ..
-            } => {
-                if let Some(closing_output) = closing_output {
-                    if closing_output == output {
-                        rv.extend(
-                            closing_thumbnails
-                                .iter()
-                                .rev()
-                                .map(|closing| closing.render().into()),
-                        );
-                    }
-                }
-                close_animation.clamped_value()
-            }
-            WindowMruUiState::Open(ref inner) => {
+        let (inner, progress) = match &self.state {
+            WindowMruUiState::Closed { .. } => return rv,
+            WindowMruUiState::Closing { inner, anim } => (inner, anim.clamped_value()),
+            WindowMruUiState::Open(inner) => {
                 if inner.open_at <= inner.clock.now_unadjusted() {
-                    if *output == inner.output {
-                        rv.extend(inner.render(niri, renderer, output, target));
-                    }
-                    1.
+                    (inner, 1.)
                 } else {
                     return rv;
                 }
             }
         };
 
-        let progress = progress.clamp(0., 1.) as f32;
+        let alpha = progress.clamp(0., 1.) as f32;
 
-        // Put a panel above the current desktop view to contrast the thumbnails
+        if *output == inner.output {
+            rv.extend(inner.render(niri, renderer, alpha, output, target));
+        }
+
+        // Put a backdrop above the current desktop view to contrast the thumbnails.
+        // TODO: store buffers to avoid constant damage.
         let buffer = SolidColorBuffer::new(output_size, BACKDROP_COLOR);
 
         rv.push(
             SolidColorRenderElement::from_buffer(
                 &buffer,
                 Point::default(),
-                progress,
+                alpha,
                 Kind::Unspecified,
             )
             .into(),
@@ -1024,32 +962,26 @@ impl WindowMruUi {
     }
 
     pub fn are_animations_ongoing(&self) -> bool {
-        match self.state {
-            WindowMruUiState::Open(ref inner) => inner.are_animations_ongoing(),
-            WindowMruUiState::Closed {
-                ref close_animation,
-                ref closing_thumbnails,
-                ..
-            } => {
-                close_animation.is_some()
-                    || closing_thumbnails
-                        .iter()
-                        .any(|closing| closing.are_animations_ongoing())
-            }
+        match &self.state {
+            WindowMruUiState::Open(inner) => inner.are_animations_ongoing(),
+            WindowMruUiState::Closing { .. } => true,
+            WindowMruUiState::Closed { .. } => false,
         }
     }
 
     pub fn advance_animations(&mut self) {
         match &mut self.state {
             WindowMruUiState::Open(inner) => inner.advance_animations(),
-            WindowMruUiState::Closed {
-                close_animation,
-                closing_thumbnails,
-                ..
-            } => {
-                close_animation.take_if(|a| a.is_done());
-                closing_thumbnails.retain(|closing| closing.are_animations_ongoing());
+            WindowMruUiState::Closing { inner, anim } => {
+                if anim.is_done() {
+                    self.state = WindowMruUiState::Closed {
+                        previous_scope: inner.wmru.scope,
+                    };
+                    return;
+                }
+                inner.advance_animations();
             }
+            WindowMruUiState::Closed { .. } => {}
         }
     }
 
@@ -1127,14 +1059,14 @@ impl Inner {
     fn are_animations_ongoing(&self) -> bool {
         self.clock.now_unadjusted() < self.open_at
             || self.view_pos.are_animations_ongoing()
-            || !self.closing_thumbnails.is_empty()
+            // || !self.closing_thumbnails.is_empty()
             || self.wmru.are_animations_ongoing()
     }
 
     fn advance_animations(&mut self) {
         self.view_pos.advance_animations();
-        self.closing_thumbnails
-            .retain_mut(|closing| closing.are_animations_ongoing());
+        // self.closing_thumbnails
+        //     .retain_mut(|closing| closing.are_animations_ongoing());
         self.wmru.advance_animations();
 
         let new_view_pos = self.compute_view_pos();
@@ -1414,6 +1346,7 @@ impl Inner {
         &self,
         niri: &Niri,
         renderer: &mut R,
+        alpha: f32,
         output: &Output,
         target: RenderTarget,
     ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> {
@@ -1442,7 +1375,7 @@ impl Inner {
             let elem = PrimaryGpuTextureRenderElement(TextureRenderElement::from_texture_buffer(
                 texture.clone(),
                 location,
-                1.,
+                alpha,
                 None,
                 None,
                 Kind::Unspecified,
@@ -1452,10 +1385,10 @@ impl Inner {
 
         // As with tiles, render thumbnails for closing windows on top of
         // others.
-        for closing in self.closing_thumbnails.iter().rev() {
-            let elem = closing.render();
-            rv.push(elem.into());
-        }
+        // for closing in self.closing_thumbnails.iter().rev() {
+        //     let elem = closing.render();
+        //     rv.push(elem.into());
+        // }
 
         let Some(current_id) = self.wmru.current_id else {
             return rv.into_iter();
@@ -1469,7 +1402,7 @@ impl Inner {
             };
 
             let is_active = thumbnail.id == current_id;
-            let elems = thumbnail.render(renderer, mapped, geo, scale, target, is_active);
+            let elems = thumbnail.render(renderer, mapped, geo, scale, is_active, alpha, target);
             rv.extend(elems);
         }
 
@@ -1662,60 +1595,6 @@ fn make_panel(renderer: &mut GlesRenderer, scale: f64, text: &str) -> anyhow::Re
     )?;
 
     Ok(buffer)
-}
-
-#[derive(Debug)]
-/// A visible Thumbnail that is in the process of being dismissed.
-/// This can happen if the corresponding window was closed or if the
-/// window ceases to match the current MRU filter or scope.
-pub struct ClosingThumbnail {
-    texture: MruTexture,
-    /// Position relative to the Output
-    location: Point<f64, Logical>,
-    anim: Animation,
-}
-
-impl ClosingThumbnail {
-    /// Convert a visible [Thumbnail] into its "closing" counterpart.
-    /// Visibility is determined based on the givan [Output] and [view_offset].
-    /// Returns an [Option<ClosingThumbnail>] depending on visbility.
-    fn new(
-        thumb: Thumbnail,
-        texture: MruTexture,
-        view_offset: f64,
-        output: &Output,
-        anim: Animation,
-    ) -> Option<Self> {
-        todo!()
-        // let offset = thumb.offset - view_offset;
-        // let output_size = output_size(output);
-        // let thumb_visible = offset + thumb.size.w >= 0. || offset <= output_size.w;
-        // if !thumb_visible {
-        //     return None;
-        // }
-        // let location = Point::from((offset, (output_size.h - texture.logical_size().h) / 2.));
-        //
-        // Some(Self {
-        //     texture,
-        //     location,
-        //     anim,
-        // })
-    }
-
-    pub fn render(&self) -> PrimaryGpuTextureRenderElement {
-        PrimaryGpuTextureRenderElement(TextureRenderElement::from_texture_buffer(
-            self.texture.clone(),
-            self.location,
-            (1. - self.anim.value()) as f32,
-            None,
-            None,
-            Kind::Unspecified,
-        ))
-    }
-
-    fn are_animations_ongoing(&self) -> bool {
-        !self.anim.is_done()
-    }
 }
 
 /// Key bindings available when the MRU UI is open.
