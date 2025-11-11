@@ -253,13 +253,13 @@ impl Thumbnail {
         });
 
         let elems = elems.map(move |elem| {
-            let thumb_scale = f64::min(
-                preview_geo.size.w / geo.size.w,
-                preview_geo.size.h / geo.size.h,
-            );
+            let thumb_scale = Scale {
+                x: preview_geo.size.w / geo.size.w,
+                y: preview_geo.size.h / geo.size.h,
+            };
             let offset = Point::new(
-                preview_geo.size.w - (geo.size.w * thumb_scale),
-                preview_geo.size.h - (geo.size.h * thumb_scale),
+                preview_geo.size.w - (geo.size.w * thumb_scale.x),
+                preview_geo.size.h - (geo.size.h * thumb_scale.y),
             )
             .downscale(2.);
             let elem = RescaleRenderElement::from_element(elem, Point::new(0, 0), thumb_scale);
