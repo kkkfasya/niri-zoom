@@ -43,7 +43,7 @@ use self::resize_grab::ResizeGrab;
 use self::spatial_movement_grab::SpatialMovementGrab;
 use crate::layout::scrolling::ScrollDirection;
 use crate::layout::{ActivateWindow, LayoutElement as _, Options};
-use crate::niri::{CastTarget, PointContents, PointerVisibility, State};
+use crate::niri::{CastTarget, PointerVisibility, State};
 use crate::ui::screenshot_ui::ScreenshotUi;
 use crate::ui::window_mru_ui::{MruCloseRequest, MruCycle, WindowMru};
 use crate::utils::spawning::{spawn, spawn_sh};
@@ -2384,165 +2384,155 @@ impl State {
         self.niri.pointer_visibility = PointerVisibility::Visible;
         self.niri.tablet_cursor_location = None;
 
-        // Surface that will receive the pointer event.
-        let mut surface = None;
+        // Check if we have an active pointer constraint.
+        //
+        // FIXME: ideally this should use the pointer focus with up-to-date global location.
+        let mut pointer_confined = None;
+        if let Some(under) = &self.niri.pointer_contents.surface {
+            // No need to check if the pointer focus surface matches, because here we're checking
+            // for an already-active constraint, and the constraint is deactivated when the focused
+            // surface changes.
+            let pos_within_surface = pos - under.1;
 
-        let mru_ui_open = self.niri.window_mru_ui.is_open();
-        let mut under = PointContents::default();
-
-        if mru_ui_open {
-            // Keep pointer on the output the where the MRU UI is open.
-            if let Some((output, pos_within_output)) = self.niri.output_under(new_pos) {
-                if Some(output) != self.niri.window_mru_ui.output() {
+            let mut pointer_locked = false;
+            with_pointer_constraint(&under.0, &pointer, |constraint| {
+                let Some(constraint) = constraint else { return };
+                if !constraint.is_active() {
                     return;
                 }
-                if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
-                    self.niri.window_mru_ui.set_current(id);
-                }
-            }
-        } else {
-            // Check if we have an active pointer constraint.
-            //
-            // FIXME: ideally this should use the pointer focus with up-to-date global location.
-            let mut pointer_confined = None;
-            if let Some(under) = &self.niri.pointer_contents.surface {
-                // No need to check if the pointer focus surface matches, because here we're
-                // checking for an already-active constraint, and the constraint is
-                // deactivated when the focused surface changes.
-                let pos_within_surface = pos - under.1;
 
-                let mut pointer_locked = false;
-                with_pointer_constraint(&under.0, &pointer, |constraint| {
-                    let Some(constraint) = constraint else { return };
-                    if !constraint.is_active() {
+                // Constraint does not apply if not within region.
+                if let Some(region) = constraint.region() {
+                    if !region.contains(pos_within_surface.to_i32_round()) {
                         return;
                     }
-
-                    // Constraint does not apply if not within region.
-                    if let Some(region) = constraint.region() {
-                        if !region.contains(pos_within_surface.to_i32_round()) {
-                            return;
-                        }
-                    }
-
-                    match &*constraint {
-                        PointerConstraint::Locked(_locked) => {
-                            pointer_locked = true;
-                        }
-                        PointerConstraint::Confined(confine) => {
-                            pointer_confined = Some((under.clone(), confine.region().cloned()));
-                        }
-                    }
-                });
-
-                // If the pointer is locked, only send relative motion.
-                if pointer_locked {
-                    pointer.relative_motion(
-                        self,
-                        Some(under.clone()),
-                        &RelativeMotionEvent {
-                            delta: event.delta(),
-                            delta_unaccel: event.delta_unaccel(),
-                            utime: event.time(),
-                        },
-                    );
-
-                    pointer.frame(self);
-
-                    // I guess a redraw to hide the tablet cursor could be nice? Doesn't matter too
-                    // much here I think.
-                    return;
                 }
-            }
 
-            if self
-                .niri
-                .global_space
-                .output_under(new_pos)
-                .next()
-                .is_none()
-            {
-                // We ended up outside the outputs and need to clip the movement.
-                if let Some(output) = self.niri.global_space.output_under(pos).next() {
-                    // The pointer was previously on some output. Clip the movement against its
-                    // boundaries.
-                    let geom = self.niri.global_space.output_geometry(output).unwrap();
-                    new_pos.x = new_pos
-                        .x
-                        .clamp(geom.loc.x as f64, (geom.loc.x + geom.size.w - 1) as f64);
-                    new_pos.y = new_pos
-                        .y
-                        .clamp(geom.loc.y as f64, (geom.loc.y + geom.size.h - 1) as f64);
-                } else {
-                    // The pointer was not on any output in the first place. Find one for it.
-                    // Let's do the simple thing and just put it on the first output.
-                    let output = self.niri.global_space.outputs().next().unwrap();
-                    let geom = self.niri.global_space.output_geometry(output).unwrap();
-                    new_pos = center(geom).to_f64();
+                match &*constraint {
+                    PointerConstraint::Locked(_locked) => {
+                        pointer_locked = true;
+                    }
+                    PointerConstraint::Confined(confine) => {
+                        pointer_confined = Some((under.clone(), confine.region().cloned()));
+                    }
                 }
-            }
+            });
 
-            if let Some(output) = self.niri.screenshot_ui.selection_output() {
+            // If the pointer is locked, only send relative motion.
+            if pointer_locked {
+                pointer.relative_motion(
+                    self,
+                    Some(under.clone()),
+                    &RelativeMotionEvent {
+                        delta: event.delta(),
+                        delta_unaccel: event.delta_unaccel(),
+                        utime: event.time(),
+                    },
+                );
+
+                pointer.frame(self);
+
+                // I guess a redraw to hide the tablet cursor could be nice? Doesn't matter too
+                // much here I think.
+                return;
+            }
+        }
+
+        if self
+            .niri
+            .global_space
+            .output_under(new_pos)
+            .next()
+            .is_none()
+        {
+            // We ended up outside the outputs and need to clip the movement.
+            if let Some(output) = self.niri.global_space.output_under(pos).next() {
+                // The pointer was previously on some output. Clip the movement against its
+                // boundaries.
                 let geom = self.niri.global_space.output_geometry(output).unwrap();
-                let mut point = (new_pos - geom.loc.to_f64())
-                    .to_physical(output.current_scale().fractional_scale())
-                    .to_i32_round::<i32>();
+                new_pos.x = new_pos
+                    .x
+                    .clamp(geom.loc.x as f64, (geom.loc.x + geom.size.w - 1) as f64);
+                new_pos.y = new_pos
+                    .y
+                    .clamp(geom.loc.y as f64, (geom.loc.y + geom.size.h - 1) as f64);
+            } else {
+                // The pointer was not on any output in the first place. Find one for it.
+                // Let's do the simple thing and just put it on the first output.
+                let output = self.niri.global_space.outputs().next().unwrap();
+                let geom = self.niri.global_space.output_geometry(output).unwrap();
+                new_pos = center(geom).to_f64();
+            }
+        }
 
-                let size = output.current_mode().unwrap().size;
-                let transform = output.current_transform();
-                let size = transform.transform_size(size);
-                point.x = point.x.clamp(0, size.w - 1);
-                point.y = point.y.clamp(0, size.h - 1);
+        if let Some(output) = self.niri.screenshot_ui.selection_output() {
+            let geom = self.niri.global_space.output_geometry(output).unwrap();
+            let mut point = (new_pos - geom.loc.to_f64())
+                .to_physical(output.current_scale().fractional_scale())
+                .to_i32_round::<i32>();
 
-                self.niri.screenshot_ui.pointer_motion(point, None);
+            let size = output.current_mode().unwrap().size;
+            let transform = output.current_transform();
+            let size = transform.transform_size(size);
+            point.x = point.x.clamp(0, size.w - 1);
+            point.y = point.y.clamp(0, size.h - 1);
+
+            self.niri.screenshot_ui.pointer_motion(point, None);
+        }
+
+        if let Some(mru_output) = self.niri.window_mru_ui.output() {
+            if let Some((output, pos_within_output)) = self.niri.output_under(new_pos) {
+                if mru_output == output {
+                    if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
+                        self.niri.window_mru_ui.set_current(id);
+                    }
+                }
+            }
+        }
+
+        let under = self.niri.contents_under(new_pos);
+
+        // Handle confined pointer.
+        if let Some((focus_surface, region)) = pointer_confined {
+            let mut prevent = false;
+
+            // Prevent the pointer from leaving the focused surface.
+            if Some(&focus_surface.0) != under.surface.as_ref().map(|(s, _)| s) {
+                prevent = true;
             }
 
-            under = self.niri.contents_under(new_pos);
-
-            // Handle confined pointer.
-            if let Some((focus_surface, region)) = pointer_confined {
-                let mut prevent = false;
-
-                // Prevent the pointer from leaving the focused surface.
-                if Some(&focus_surface.0) != under.surface.as_ref().map(|(s, _)| s) {
+            // Prevent the pointer from leaving the confine region, if any.
+            if let Some(region) = region {
+                let new_pos_within_surface = new_pos - focus_surface.1;
+                if !region.contains(new_pos_within_surface.to_i32_round()) {
                     prevent = true;
                 }
-
-                // Prevent the pointer from leaving the confine region, if any.
-                if let Some(region) = region {
-                    let new_pos_within_surface = new_pos - focus_surface.1;
-                    if !region.contains(new_pos_within_surface.to_i32_round()) {
-                        prevent = true;
-                    }
-                }
-
-                if prevent {
-                    pointer.relative_motion(
-                        self,
-                        Some(focus_surface),
-                        &RelativeMotionEvent {
-                            delta: event.delta(),
-                            delta_unaccel: event.delta_unaccel(),
-                            utime: event.time(),
-                        },
-                    );
-
-                    pointer.frame(self);
-
-                    return;
-                }
             }
 
-            self.niri.handle_focus_follows_mouse(&under);
+            if prevent {
+                pointer.relative_motion(
+                    self,
+                    Some(focus_surface),
+                    &RelativeMotionEvent {
+                        delta: event.delta(),
+                        delta_unaccel: event.delta_unaccel(),
+                        utime: event.time(),
+                    },
+                );
 
-            self.niri.pointer_contents.clone_from(&under);
+                pointer.frame(self);
 
-            surface = under.surface;
+                return;
+            }
         }
+
+        self.niri.handle_focus_follows_mouse(&under);
+
+        self.niri.pointer_contents.clone_from(&under);
 
         pointer.motion(
             self,
-            surface.clone(),
+            under.surface.clone(),
             &MotionEvent {
                 location: new_pos,
                 serial,
@@ -2552,7 +2542,7 @@ impl State {
 
         pointer.relative_motion(
             self,
-            surface,
+            under.surface,
             &RelativeMotionEvent {
                 delta: event.delta(),
                 delta_unaccel: event.delta_unaccel(),
@@ -2562,33 +2552,31 @@ impl State {
 
         pointer.frame(self);
 
-        if !mru_ui_open {
-            // contents_under() will return no surface when the hot corner should trigger, so
-            // pointer.motion() will set the current focus to None.
-            if under.hot_corner && pointer.current_focus().is_none() {
-                if !was_inside_hot_corner
-                    && pointer
-                        .with_grab(|_, grab| grab_allows_hot_corner(grab))
-                        .unwrap_or(true)
-                {
-                    self.niri.layout.toggle_overview();
-                }
-                self.niri.pointer_inside_hot_corner = true;
+        // contents_under() will return no surface when the hot corner should trigger, so
+        // pointer.motion() will set the current focus to None.
+        if under.hot_corner && pointer.current_focus().is_none() {
+            if !was_inside_hot_corner
+                && pointer
+                    .with_grab(|_, grab| grab_allows_hot_corner(grab))
+                    .unwrap_or(true)
+            {
+                self.niri.layout.toggle_overview();
             }
+            self.niri.pointer_inside_hot_corner = true;
+        }
 
-            // Activate a new confinement if necessary.
-            self.niri.maybe_activate_pointer_constraint();
+        // Activate a new confinement if necessary.
+        self.niri.maybe_activate_pointer_constraint();
 
-            // Inform the layout of an ongoing DnD operation.
-            let mut is_dnd_grab = false;
-            pointer.with_grab(|_, grab| {
-                is_dnd_grab = grab.as_any().is::<DnDGrab<Self>>();
-            });
-            if is_dnd_grab {
-                if let Some((output, pos_within_output)) = self.niri.output_under(new_pos) {
-                    let output = output.clone();
-                    self.niri.layout.dnd_update(output, pos_within_output);
-                }
+        // Inform the layout of an ongoing DnD operation.
+        let mut is_dnd_grab = false;
+        pointer.with_grab(|_, grab| {
+            is_dnd_grab = grab.as_any().is::<DnDGrab<Self>>();
+        });
+        if is_dnd_grab {
+            if let Some((output, pos_within_output)) = self.niri.output_under(new_pos) {
+                let output = output.clone();
+                self.niri.layout.dnd_update(output, pos_within_output);
             }
         }
 
@@ -2617,48 +2605,40 @@ impl State {
 
         let pointer = self.niri.seat.get_pointer().unwrap();
 
-        let mut surface = None;
-        let mut under = PointContents::default();
+        if let Some(output) = self.niri.screenshot_ui.selection_output() {
+            let geom = self.niri.global_space.output_geometry(output).unwrap();
+            let mut point = (pos - geom.loc.to_f64())
+                .to_physical(output.current_scale().fractional_scale())
+                .to_i32_round::<i32>();
 
-        let mru_ui_open = self.niri.window_mru_ui.is_open();
-        if mru_ui_open {
-            // Keep pointer on the output the where the MRU UI is open.
-            if let Some((output, pos_within_output)) = self.niri.output_under(pos) {
-                if Some(output) != self.niri.window_mru_ui.output() {
-                    return;
-                }
-                if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
-                    self.niri.window_mru_ui.set_current(id);
-                }
-            }
-        } else {
-            if let Some(output) = self.niri.screenshot_ui.selection_output() {
-                let geom = self.niri.global_space.output_geometry(output).unwrap();
-                let mut point = (pos - geom.loc.to_f64())
-                    .to_physical(output.current_scale().fractional_scale())
-                    .to_i32_round::<i32>();
+            let size = output.current_mode().unwrap().size;
+            let transform = output.current_transform();
+            let size = transform.transform_size(size);
+            point.x = point.x.clamp(0, size.w - 1);
+            point.y = point.y.clamp(0, size.h - 1);
 
-                let size = output.current_mode().unwrap().size;
-                let transform = output.current_transform();
-                let size = transform.transform_size(size);
-                point.x = point.x.clamp(0, size.w - 1);
-                point.y = point.y.clamp(0, size.h - 1);
-
-                self.niri.screenshot_ui.pointer_motion(point, None);
-            }
-
-            under = self.niri.contents_under(pos);
-
-            self.niri.handle_focus_follows_mouse(&under);
-
-            self.niri.pointer_contents.clone_from(&under);
-
-            surface = under.surface;
+            self.niri.screenshot_ui.pointer_motion(point, None);
         }
+
+        if let Some(mru_output) = self.niri.window_mru_ui.output() {
+            if let Some((output, pos_within_output)) = self.niri.output_under(pos) {
+                if mru_output == output {
+                    if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
+                        self.niri.window_mru_ui.set_current(id);
+                    }
+                }
+            }
+        }
+
+        let under = self.niri.contents_under(pos);
+
+        self.niri.handle_focus_follows_mouse(&under);
+
+        self.niri.pointer_contents.clone_from(&under);
 
         pointer.motion(
             self,
-            surface,
+            under.surface,
             &MotionEvent {
                 location: pos,
                 serial,
@@ -2668,40 +2648,38 @@ impl State {
 
         pointer.frame(self);
 
-        if !mru_ui_open {
-            // contents_under() will return no surface when the hot corner should trigger, so
-            // pointer.motion() will set the current focus to None.
-            if under.hot_corner && pointer.current_focus().is_none() {
-                if !was_inside_hot_corner
-                    && pointer
-                        .with_grab(|_, grab| grab_allows_hot_corner(grab))
-                        .unwrap_or(true)
-                {
-                    self.niri.layout.toggle_overview();
-                }
-                self.niri.pointer_inside_hot_corner = true;
+        // contents_under() will return no surface when the hot corner should trigger, so
+        // pointer.motion() will set the current focus to None.
+        if under.hot_corner && pointer.current_focus().is_none() {
+            if !was_inside_hot_corner
+                && pointer
+                    .with_grab(|_, grab| grab_allows_hot_corner(grab))
+                    .unwrap_or(true)
+            {
+                self.niri.layout.toggle_overview();
             }
-
-            self.niri.maybe_activate_pointer_constraint();
-
-            // Inform the layout of an ongoing DnD operation.
-            let mut is_dnd_grab = false;
-            pointer.with_grab(|_, grab| {
-                is_dnd_grab = grab.as_any().is::<DnDGrab<Self>>();
-            });
-            if is_dnd_grab {
-                if let Some((output, pos_within_output)) = self.niri.output_under(pos) {
-                    let output = output.clone();
-                    self.niri.layout.dnd_update(output, pos_within_output);
-                }
-            }
+            self.niri.pointer_inside_hot_corner = true;
         }
+
+        self.niri.maybe_activate_pointer_constraint();
 
         // We moved the pointer, show it.
         self.niri.pointer_visibility = PointerVisibility::Visible;
 
         // We moved the regular pointer, so show it now.
         self.niri.tablet_cursor_location = None;
+
+        // Inform the layout of an ongoing DnD operation.
+        let mut is_dnd_grab = false;
+        pointer.with_grab(|_, grab| {
+            is_dnd_grab = grab.as_any().is::<DnDGrab<Self>>();
+        });
+        if is_dnd_grab {
+            if let Some((output, pos_within_output)) = self.niri.output_under(pos) {
+                let output = output.clone();
+                self.niri.layout.dnd_update(output, pos_within_output);
+            }
+        }
 
         // Redraw to update the cursor position.
         // FIXME: redraw only outputs overlapping the cursor.

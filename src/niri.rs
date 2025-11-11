@@ -3527,7 +3527,7 @@ impl Niri {
             return rv;
         }
 
-        if self.screenshot_ui.is_open() {
+        if self.screenshot_ui.is_open() || self.window_mru_ui.is_open() {
             return rv;
         }
 
