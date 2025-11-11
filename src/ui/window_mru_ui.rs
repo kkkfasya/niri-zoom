@@ -27,6 +27,7 @@ use crate::layout::{Layout, LayoutElement as _, LayoutElementRenderElement, Opti
 use crate::niri::Niri;
 use crate::niri_render_elements;
 use crate::render_helpers::clipped_surface::ClippedSurfaceRenderElement;
+use crate::render_helpers::gradient_fade_texture::GradientFadeTextureRenderElement;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
@@ -283,15 +284,23 @@ impl Thumbnail {
                     preview_geo.size.h + title_gap,
                 );
             let loc = loc.to_physical_precise_round(scale).to_logical(scale);
-            let elem = PrimaryGpuTextureRenderElement(TextureRenderElement::from_texture_buffer(
+            let texture = TextureRenderElement::from_texture_buffer(
                 title_texture,
                 loc,
                 alpha,
                 Some(src),
                 None,
                 Kind::Unspecified,
-            ));
-            WindowMruUiRenderElement::TextureElement(elem)
+            );
+
+            let renderer = renderer.as_gles_renderer();
+            if let Some(program) = GradientFadeTextureRenderElement::shader(renderer) {
+                let elem = GradientFadeTextureRenderElement::new(texture, program);
+                WindowMruUiRenderElement::GradientFadeElem(elem)
+            } else {
+                let elem = PrimaryGpuTextureRenderElement(texture);
+                WindowMruUiRenderElement::TextureElement(elem)
+            }
         });
 
         let background_elems = is_active.then(|| {
@@ -743,6 +752,7 @@ niri_render_elements! {
     WindowMruUiRenderElement<R> => {
         SolidColor = SolidColorRenderElement,
         TextureElement = PrimaryGpuTextureRenderElement,
+        GradientFadeElem = GradientFadeTextureRenderElement,
         FocusRing = FocusRingRenderElement,
         Thumbnail = RelocateRenderElement<RescaleRenderElement<ThumbnailRenderElement<R>>>,
     }
@@ -1538,21 +1548,7 @@ fn generate_title_texture(
     cr.set_source_rgb(1., 1., 1.);
     pangocairo::functions::show_layout(&cr, &layout);
 
-    // if apply_gradient {
-    //     let gradient = cairo::LinearGradient::new(0., 0., width as f64, 0.);
-    //     gradient.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 1.0); // fully opaque
-    //     gradient.add_color_stop_rgba(0.9, 1.0, 1.0, 1.0, 1.0); // fully opaque
-    //     gradient.add_color_stop_rgba(1.0, 1.0, 1.0, 1.0, 0.0); // fade to transparent
-    //
-    //     // Use destination-in to mask the content with the gradient
-    //     cr.set_operator(cairo::Operator::DestIn);
-    //     cr.rectangle(0., 0., width as f64, height as f64);
-    //     cr.set_source(&gradient)?;
-    //     cr.fill()?;
-    // }
-
     drop(cr);
-
     let data = surface.take_data().unwrap();
     let buffer = TextureBuffer::from_memory(
         renderer,
