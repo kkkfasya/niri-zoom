@@ -57,6 +57,9 @@ const PREVIEW_MAX_HEIGHT: f64 = 480.;
 /// confusion.
 const PREVIEW_MAX_SCALE: f64 = 0.5;
 
+/// Windows up to this size don't get scaled further down.
+const PREVIEW_MIN_SIZE: f64 = 16.;
+
 /// Padding from window preview to the border.
 const PADDING: f64 = 30.;
 
@@ -176,8 +179,11 @@ impl Thumbnail {
         let max_width = max_height * output_ratio;
 
         let size = self.size.to_f64();
+        let min_scale = f64::min(1., PREVIEW_MIN_SIZE / f64::max(size.w, size.h));
+
         let thumb_scale = f64::min(max_width / size.w, max_height / size.h);
         let thumb_scale = f64::min(PREVIEW_MAX_SCALE, thumb_scale);
+        let thumb_scale = f64::max(min_scale, thumb_scale);
         let size = size.to_f64().upscale(thumb_scale);
 
         // Round to physical pixels.
