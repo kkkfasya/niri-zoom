@@ -5,8 +5,7 @@ use std::{iter, mem};
 
 use anyhow::ensure;
 use niri_config::{
-    Action, Bind, Color, CornerRadius, Key, ModKey, Modifiers, MruDirection, MruFilter, MruScope,
-    Trigger,
+    Action, Bind, Color, CornerRadius, Key, Modifiers, MruDirection, MruFilter, MruScope, Trigger,
 };
 use pango::{Alignment, FontDescription};
 use pangocairo::cairo::{self, ImageSurface};
@@ -609,9 +608,7 @@ type MruTexture = TextureBuffer<GlesTexture>;
 
 pub struct WindowMruUi {
     state: WindowMruUiState,
-    cached_mod_key: ModKey,
-    cached_bindings: Option<Vec<Bind>>,
-    cached_opened_bindings: Option<Vec<Bind>>,
+    opened_binds: Vec<Bind>,
 }
 
 pub enum WindowMruUiState {
@@ -769,13 +766,10 @@ niri_render_elements! {
 impl WindowMruUi {
     pub fn new() -> Self {
         Self {
-            // The value here doesn't matter.
-            cached_mod_key: ModKey::Alt,
-            cached_bindings: None,
-            cached_opened_bindings: None,
             state: WindowMruUiState::Closed {
                 previous_scope: MruScope::default(),
             },
+            opened_binds: opened_binds(),
         }
     }
 
@@ -994,39 +988,13 @@ impl WindowMruUi {
         }
     }
 
-    pub fn bindings(&mut self, mod_key: ModKey) -> impl Iterator<Item = &Bind> {
-        if self.cached_mod_key != mod_key {
-            self.cached_mod_key = mod_key;
-            self.cached_bindings = None;
-            self.cached_opened_bindings = None;
+    pub fn opened_bindings(&mut self, mods: Modifiers) -> impl Iterator<Item = &Bind> {
+        // Fill modifiers with the current mods.
+        for bind in &mut self.opened_binds {
+            bind.key.modifiers = mods;
         }
 
-        let modifiers = mod_key.to_modifiers();
-        let apply_modkey = move |mut bind: Bind| {
-            bind.key.modifiers |= modifiers;
-            bind
-        };
-
-        let is_open = self.is_open();
-
-        let bindings = self
-            .cached_bindings
-            .get_or_insert(MRU_UI_BINDINGS.iter().cloned().map(apply_modkey).collect());
-
-        let opened_bindings = self.cached_opened_bindings.get_or_insert(
-            MRU_UI_OPENED_BINDINGS
-                .iter()
-                .cloned()
-                .map(apply_modkey)
-                .collect(),
-        );
-
-        bindings.iter().chain(
-            is_open
-                .then_some(opened_bindings.iter())
-                .into_iter()
-                .flatten(),
-        )
+        self.opened_binds.iter()
     }
 
     pub fn output(&self) -> Option<&Output> {
@@ -1606,263 +1574,83 @@ fn make_panel(renderer: &mut GlesRenderer, scale: f64, text: &str) -> anyhow::Re
     Ok(buffer)
 }
 
-/// Key bindings available when the MRU UI is open.
-/// Because the UI is closed when the Alt key is released, all bindings
-/// have the ALT modifier.
-static MRU_UI_OPENED_BINDINGS: &[Bind] = &[
-    // Escape just closes the MRU UI
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::Escape),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruCancel,
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    // Left and Right can also be used when the UI is open
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::Right),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruAdvance(MruDirection::Forward, None, None),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::Left),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruAdvance(MruDirection::Backward, None, None),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    // j and k can be used as well
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::j),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruAdvance(MruDirection::Forward, None, None),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::k),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruAdvance(MruDirection::Backward, None, None),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    // and so can h and l can be used as well
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::l),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruAdvance(MruDirection::Forward, None, None),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::h),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruAdvance(MruDirection::Backward, None, None),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    // And q can be used to close windows during navigation
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::q),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruCloseCurrent,
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::Return),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruClose,
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::Home),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruFirst,
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::End),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruLast,
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::a),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruChangeScope(MruScope::All),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::w),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruChangeScope(MruScope::Workspace),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::o),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruChangeScope(MruScope::Output),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::s),
-            modifiers: Modifiers::empty(),
-        },
-        action: Action::MruCycleScope(MruDirection::Forward),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::s),
-            modifiers: Modifiers::SHIFT,
-        },
-        action: Action::MruCycleScope(MruDirection::Backward),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-];
+/// Returns key bindings available when the MRU UI is open.
+fn opened_binds() -> Vec<Bind> {
+    let mut rv = Vec::new();
 
-/// Key bindings that are available both when the MRU UI is opened or closed
-static MRU_UI_BINDINGS: &[Bind] = &[
-    // The following two bindings cover MRU window navigation. They are
-    // preset because the `Alt` key is treated specially in `on_keyboard`.
-    // When it is released the active MRU traversal is considered to have
-    // completed. If the user were allowed to change the MRU bindings
-    // below, the navigation mechanism would no longer work as intended.
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::Tab),
-            modifiers: Modifiers::empty(),
+    let mut push = |trigger, action| {
+        rv.push(Bind {
+            key: Key {
+                trigger: Trigger::Keysym(trigger),
+                // The modifier is filled dynamically.
+                modifiers: Modifiers::empty(),
+            },
+            action,
+            repeat: true,
+            cooldown: None,
+            allow_when_locked: false,
+            allow_inhibiting: false,
+            hotkey_overlay_title: None,
+        })
+    };
+
+    push(Keysym::Escape, Action::MruCancel);
+    push(Keysym::Return, Action::MruConfirm);
+    push(Keysym::q, Action::MruCloseCurrentWindow);
+    push(Keysym::a, Action::MruSetScope(MruScope::All));
+    push(Keysym::o, Action::MruSetScope(MruScope::Output));
+    push(Keysym::w, Action::MruSetScope(MruScope::Workspace));
+    push(Keysym::s, Action::MruCycleScope(MruDirection::Forward));
+    push(Keysym::Home, Action::MruFirst);
+    push(Keysym::End, Action::MruLast);
+    push(
+        Keysym::Left,
+        Action::MruAdvance {
+            direction: MruDirection::Backward,
+            scope: None,
+            filter: None,
         },
-        action: Action::MruAdvance(MruDirection::Forward, None, Some(MruFilter::None)),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::Tab),
-            modifiers: Modifiers::SHIFT,
+    );
+    push(
+        Keysym::Right,
+        Action::MruAdvance {
+            direction: MruDirection::Forward,
+            scope: None,
+            filter: None,
         },
-        action: Action::MruAdvance(MruDirection::Backward, None, Some(MruFilter::None)),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    // forward/backward bind actions for AppId navigation
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::grave),
-            modifiers: Modifiers::empty(),
+    );
+    push(
+        Keysym::h,
+        Action::MruAdvance {
+            direction: MruDirection::Backward,
+            scope: None,
+            filter: None,
         },
-        action: Action::MruAdvance(MruDirection::Forward, None, Some(MruFilter::AppId)),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-    Bind {
-        key: Key {
-            trigger: Trigger::Keysym(Keysym::grave),
-            modifiers: Modifiers::SHIFT,
+    );
+    push(
+        Keysym::l,
+        Action::MruAdvance {
+            direction: MruDirection::Forward,
+            scope: None,
+            filter: None,
         },
-        action: Action::MruAdvance(MruDirection::Backward, None, Some(MruFilter::AppId)),
-        repeat: true,
-        cooldown: None,
-        allow_when_locked: false,
-        allow_inhibiting: true,
-        hotkey_overlay_title: None,
-    },
-];
+    );
+    push(
+        Keysym::k,
+        Action::MruAdvance {
+            direction: MruDirection::Backward,
+            scope: None,
+            filter: None,
+        },
+    );
+    push(
+        Keysym::j,
+        Action::MruAdvance {
+            direction: MruDirection::Forward,
+            scope: None,
+            filter: None,
+        },
+    );
+
+    rv
+}

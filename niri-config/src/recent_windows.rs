@@ -1,5 +1,10 @@
-use super::ModKey;
-use crate::utils::MergeWith;
+use std::collections::HashSet;
+
+use knuffel::errors::DecodeError;
+use smithay::input::keyboard::Keysym;
+
+use crate::utils::{expect_only_children, MergeWith};
+use crate::{Action, Bind, Key, Modifiers, Trigger};
 
 /// Delay before the window focus is considered to be locked-in for Window
 /// MRU ordering. For now the delay is not configurable.
@@ -8,14 +13,14 @@ pub const DEFAULT_MRU_COMMIT_MS: u64 = 750;
 #[derive(Debug, PartialEq)]
 pub struct RecentWindows {
     pub on: bool,
-    pub mod_key: ModKey,
+    pub binds: Vec<Bind>,
 }
 
 impl Default for RecentWindows {
     fn default() -> Self {
         RecentWindows {
             on: true,
-            mod_key: ModKey::Alt,
+            binds: default_binds(),
         }
     }
 }
@@ -26,8 +31,8 @@ pub struct RecentWindowsPart {
     pub on: bool,
     #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child, unwrap(argument, str))]
-    pub mod_key: Option<ModKey>,
+    #[knuffel(child)]
+    pub binds: Option<MruBinds>,
 }
 
 impl MergeWith<RecentWindowsPart> for RecentWindows {
@@ -36,6 +41,267 @@ impl MergeWith<RecentWindowsPart> for RecentWindows {
         if part.off {
             self.on = false;
         }
-        merge_clone!((self, part), mod_key);
+
+        if let Some(part) = &part.binds {
+            // Remove existing binds matching any new bind.
+            self.binds
+                .retain(|bind| !part.0.iter().any(|new| new.key == bind.key));
+            // Add all new binds.
+            self.binds.extend(part.0.iter().cloned().map(Bind::from));
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MruBind {
+    // MRU bind keys must have a modifier, this is enforced during parsing. The switcher will close
+    // once all modifiers are released.
+    pub key: Key,
+    pub action: MruAction,
+    pub allow_inhibiting: bool,
+    pub hotkey_overlay_title: Option<Option<String>>,
+}
+
+impl From<MruBind> for Bind {
+    fn from(x: MruBind) -> Self {
+        Self {
+            key: x.key,
+            action: Action::from(x.action),
+            repeat: true,
+            cooldown: None,
+            allow_when_locked: false,
+            allow_inhibiting: x.allow_inhibiting,
+            hotkey_overlay_title: x.hotkey_overlay_title,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum MruDirection {
+    /// Most recently used to least.
+    #[default]
+    Forward,
+    /// Least recently used to most.
+    Backward,
+}
+
+#[derive(knuffel::DecodeScalar, Clone, Copy, Debug, Default, PartialEq)]
+pub enum MruScope {
+    /// All windows.
+    #[default]
+    All,
+    /// Windows on the active output.
+    Output,
+    /// Windows on the active workspace.
+    Workspace,
+}
+
+#[derive(knuffel::DecodeScalar, Clone, Copy, Debug, Default, PartialEq)]
+pub enum MruFilter {
+    /// All windows.
+    #[default]
+    None,
+    /// Windows with the same app id as the active window.
+    AppId,
+}
+
+#[derive(knuffel::Decode, Debug, Clone, PartialEq)]
+pub enum MruAction {
+    NextWindow(
+        #[knuffel(property(name = "scope"))] Option<MruScope>,
+        #[knuffel(property(name = "filter"), default)] MruFilter,
+    ),
+    PreviousWindow(
+        #[knuffel(property(name = "scope"))] Option<MruScope>,
+        #[knuffel(property(name = "filter"), default)] MruFilter,
+    ),
+}
+
+impl From<MruAction> for Action {
+    fn from(x: MruAction) -> Self {
+        match x {
+            MruAction::NextWindow(scope, filter) => Self::MruAdvance {
+                direction: MruDirection::Forward,
+                scope,
+                filter: Some(filter),
+            },
+            MruAction::PreviousWindow(scope, filter) => Self::MruAdvance {
+                direction: MruDirection::Backward,
+                scope,
+                filter: Some(filter),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct MruBinds(pub Vec<MruBind>);
+
+fn default_binds() -> Vec<Bind> {
+    let mut rv = Vec::new();
+
+    let mut push = |trigger, base_mod, filter| {
+        rv.push(Bind::from(MruBind {
+            key: Key {
+                trigger: Trigger::Keysym(trigger),
+                modifiers: base_mod,
+            },
+            action: MruAction::NextWindow(None, filter),
+            allow_inhibiting: true,
+            hotkey_overlay_title: None,
+        }));
+        rv.push(Bind::from(MruBind {
+            key: Key {
+                trigger: Trigger::Keysym(trigger),
+                modifiers: base_mod | Modifiers::SHIFT,
+            },
+            action: MruAction::PreviousWindow(None, filter),
+            allow_inhibiting: true,
+            hotkey_overlay_title: None,
+        }));
+    };
+
+    for base_mod in [Modifiers::ALT, Modifiers::COMPOSITOR] {
+        push(Keysym::Tab, base_mod, MruFilter::None);
+        push(Keysym::grave, base_mod, MruFilter::AppId);
+    }
+
+    rv
+}
+
+impl<S> knuffel::Decode<S> for MruBinds
+where
+    S: knuffel::traits::ErrorSpan,
+{
+    fn decode_node(
+        node: &knuffel::ast::SpannedNode<S>,
+        ctx: &mut knuffel::decode::Context<S>,
+    ) -> Result<Self, DecodeError<S>> {
+        expect_only_children(node, ctx);
+
+        let mut seen_keys = HashSet::new();
+
+        let mut binds = Vec::new();
+
+        for child in node.children() {
+            match MruBind::decode_node(child, ctx) {
+                Ok(bind) => {
+                    if !seen_keys.insert(bind.key) {
+                        ctx.emit_error(DecodeError::unexpected(
+                            &child.node_name,
+                            "keybind",
+                            "duplicate keybind",
+                        ));
+                        continue;
+                    }
+
+                    binds.push(bind);
+                }
+                Err(e) => {
+                    ctx.emit_error(e);
+                }
+            }
+        }
+
+        Ok(Self(binds))
+    }
+}
+
+impl<S> knuffel::Decode<S> for MruBind
+where
+    S: knuffel::traits::ErrorSpan,
+{
+    fn decode_node(
+        node: &knuffel::ast::SpannedNode<S>,
+        ctx: &mut knuffel::decode::Context<S>,
+    ) -> Result<Self, DecodeError<S>> {
+        if let Some(type_name) = &node.type_name {
+            ctx.emit_error(DecodeError::unexpected(
+                type_name,
+                "type name",
+                "no type name expected for this node",
+            ));
+        }
+
+        for val in node.arguments.iter() {
+            ctx.emit_error(DecodeError::unexpected(
+                &val.literal,
+                "argument",
+                "no arguments expected for this node",
+            ));
+        }
+
+        let key = node
+            .node_name
+            .parse::<Key>()
+            .map_err(|e| DecodeError::conversion(&node.node_name, e.wrap_err("invalid keybind")))?;
+
+        if key.modifiers.is_empty() {
+            ctx.emit_error(DecodeError::unexpected(
+                &node.node_name,
+                "keybind",
+                "keybind must have a modifier key",
+            ));
+        }
+
+        let mut allow_inhibiting = true;
+        let mut hotkey_overlay_title = None;
+        for (name, val) in &node.properties {
+            match &***name {
+                "allow-inhibiting" => {
+                    allow_inhibiting = knuffel::traits::DecodeScalar::decode(val, ctx)?;
+                }
+                "hotkey-overlay-title" => {
+                    hotkey_overlay_title = Some(knuffel::traits::DecodeScalar::decode(val, ctx)?);
+                }
+                name_str => {
+                    ctx.emit_error(DecodeError::unexpected(
+                        name,
+                        "property",
+                        format!("unexpected property `{}`", name_str.escape_default()),
+                    ));
+                }
+            }
+        }
+
+        let mut children = node.children();
+
+        // If the action is invalid but the key is fine, we still want to return something.
+        // That way, the parent can handle the existence of duplicate keybinds,
+        // even if their contents are not valid.
+        let dummy = Self {
+            key,
+            action: MruAction::NextWindow(None, MruFilter::None),
+            allow_inhibiting: true,
+            hotkey_overlay_title: None,
+        };
+
+        if let Some(child) = children.next() {
+            for unwanted_child in children {
+                ctx.emit_error(DecodeError::unexpected(
+                    unwanted_child,
+                    "node",
+                    "only one action is allowed per keybind",
+                ));
+            }
+            match MruAction::decode_node(child, ctx) {
+                Ok(action) => Ok(Self {
+                    key,
+                    action,
+                    allow_inhibiting,
+                    hotkey_overlay_title,
+                }),
+                Err(e) => {
+                    ctx.emit_error(e);
+                    Ok(dummy)
+                }
+            }
+        } else {
+            ctx.emit_error(DecodeError::missing(
+                node,
+                "expected an action for this keybind",
+            ));
+            Ok(dummy)
+        }
     }
 }

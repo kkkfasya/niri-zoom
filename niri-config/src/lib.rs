@@ -13,7 +13,7 @@
 #[macro_use]
 extern crate tracing;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs::{self, File};
@@ -56,7 +56,9 @@ pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 use crate::recent_windows::RecentWindowsPart;
-pub use crate::recent_windows::{RecentWindows, DEFAULT_MRU_COMMIT_MS};
+pub use crate::recent_windows::{
+    MruDirection, MruFilter, MruScope, RecentWindows, DEFAULT_MRU_COMMIT_MS,
+};
 pub use crate::utils::FloatOrInt;
 use crate::utils::{Flag, MergeWith as _};
 pub use crate::window_rule::{FloatingPosition, RelativeTo, WindowRule};
@@ -122,6 +124,7 @@ struct IncludeErrors(Vec<knuffel::Error>);
 //
 // We don't *need* it because we have a recursion limit, but it makes for nicer error messages.
 struct IncludeStack(HashSet<PathBuf>);
+struct SawMruBinds(Rc<Cell<bool>>);
 
 // Rather than listing all fields and deriving knuffel::Decode, we implement
 // knuffel::DecodeChildren by hand, since we need custom logic for every field anyway: we want to
@@ -144,6 +147,7 @@ where
         let includes = ctx.get::<Rc<RefCell<Includes>>>().unwrap().clone();
         let include_errors = ctx.get::<Rc<RefCell<IncludeErrors>>>().unwrap().clone();
         let recursion = ctx.get::<Recursion>().unwrap().0;
+        let saw_mru_binds = ctx.get::<SawMruBinds>().unwrap().0.clone();
 
         let mut seen = HashSet::new();
 
@@ -275,7 +279,17 @@ where
 
                 "recent-windows" => {
                     let part = RecentWindowsPart::decode_node(node, ctx)?;
-                    config.borrow_mut().recent_windows.merge_with(&part);
+
+                    let mut config = config.borrow_mut();
+
+                    // When an MRU binds section is encountered for the first time, clear out the
+                    // default MRU binds.
+                    if !saw_mru_binds.get() && part.binds.is_some() {
+                        saw_mru_binds.set(true);
+                        config.recent_windows.binds.clear();
+                    }
+
+                    config.recent_windows.merge_with(&part);
                 }
 
                 "include" => {
@@ -340,6 +354,7 @@ where
                                 ctx.set(includes.clone());
                                 ctx.set(include_errors.clone());
                                 ctx.set(IncludeStack(include_stack));
+                                ctx.set(SawMruBinds(saw_mru_binds.clone()));
                                 ctx.set(config.clone());
                             });
 
@@ -433,6 +448,7 @@ impl Config {
                 ctx.set(includes.clone());
                 ctx.set(include_errors.clone());
                 ctx.set(IncludeStack(include_stack));
+                ctx.set(SawMruBinds(Rc::new(Cell::new(false))));
                 ctx.set(config.clone());
             },
         );
@@ -860,7 +876,12 @@ mod tests {
 
             recent-windows {
                 off
-                mod-key "Alt"
+
+                binds {
+                    Alt+Tab { next-window; }
+                    Alt+grave { next-window filter="app-id"; }
+                    Super+Tab { next-window scope="output"; }
+                }
             }
             "##,
         );
@@ -2147,7 +2168,76 @@ mod tests {
             ],
             recent_windows: RecentWindows {
                 on: false,
-                mod_key: Alt,
+                binds: [
+                    Bind {
+                        key: Key {
+                            trigger: Keysym(
+                                XK_Tab,
+                            ),
+                            modifiers: Modifiers(
+                                ALT,
+                            ),
+                        },
+                        action: MruAdvance {
+                            direction: Forward,
+                            scope: None,
+                            filter: Some(
+                                None,
+                            ),
+                        },
+                        repeat: true,
+                        cooldown: None,
+                        allow_when_locked: false,
+                        allow_inhibiting: true,
+                        hotkey_overlay_title: None,
+                    },
+                    Bind {
+                        key: Key {
+                            trigger: Keysym(
+                                XK_grave,
+                            ),
+                            modifiers: Modifiers(
+                                ALT,
+                            ),
+                        },
+                        action: MruAdvance {
+                            direction: Forward,
+                            scope: None,
+                            filter: Some(
+                                AppId,
+                            ),
+                        },
+                        repeat: true,
+                        cooldown: None,
+                        allow_when_locked: false,
+                        allow_inhibiting: true,
+                        hotkey_overlay_title: None,
+                    },
+                    Bind {
+                        key: Key {
+                            trigger: Keysym(
+                                XK_Tab,
+                            ),
+                            modifiers: Modifiers(
+                                SUPER,
+                            ),
+                        },
+                        action: MruAdvance {
+                            direction: Forward,
+                            scope: Some(
+                                Output,
+                            ),
+                            filter: Some(
+                                None,
+                            ),
+                        },
+                        repeat: true,
+                        cooldown: None,
+                        allow_when_locked: false,
+                        allow_inhibiting: true,
+                        hotkey_overlay_title: None,
+                    },
+                ],
             },
         }
         "#);

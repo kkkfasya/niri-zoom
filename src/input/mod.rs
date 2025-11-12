@@ -341,7 +341,6 @@ impl State {
         consumed_by_a11y: &mut bool,
     ) {
         let mod_key = self.backend.mod_key(&self.niri.config.borrow());
-        let mru_mod_key = self.backend.mru_mod_key(&self.niri.config.borrow());
 
         let serial = SERIAL_COUNTER.next_serial();
         let time = Event::time_msec(&event);
@@ -365,7 +364,6 @@ impl State {
         }
 
         let is_inhibiting_shortcuts = self.is_inhibiting_shortcuts();
-        let mru_ui_enabled = self.niri.config.borrow().recent_windows.on;
 
         // Accessibility modifier grabs should override XKB state changes (e.g. Caps Lock), so we
         // need to process them before keyboard.input() below.
@@ -401,14 +399,17 @@ impl State {
                     return FilterResult::Intercept(None);
                 }
 
-                // Check if MRU UI mod-key was released while the MRU UI was open.
-                // If so,  close the UI (which will also transfer the focus to the current
-                // MRU UI selection).
-                if mru_ui_enabled && this.niri.window_mru_ui.is_open() {
-                    let mru_mod_key_down =
-                        modifiers_from_state(*mods).contains(mru_mod_key.to_modifiers());
-                    if !mru_mod_key_down {
-                        this.do_action(Action::MruClose, false);
+                // Check if all modifiers were released while the MRU UI was open. If so, close the
+                // UI (which will also transfer the focus to the current MRU UI selection).
+                if this.niri.window_mru_ui.is_open()
+                    && !pressed
+                    && modifiers_from_state(*mods).is_empty()
+                {
+                    this.do_action(Action::MruConfirm, false);
+
+                    if this.niri.suppressed_keys.remove(&key_code) {
+                        return FilterResult::Intercept(None);
+                    } else {
                         return FilterResult::Forward;
                     }
                 }
@@ -428,25 +429,32 @@ impl State {
                     return FilterResult::Intercept(None);
                 }
 
+                if let Some(Keysym::space) = raw {
+                    this.niri.screenshot_ui.set_space_down(pressed);
+                }
+
                 let res = {
                     let config = this.niri.config.borrow();
 
-                    // Active key bindings depend on whether the MRU UI is enabled and whether it is
-                    // open:
-                    // - if it is disabled: only use keybindings from the configuration
-                    // - if it is enabled and closed: use keybindings from the configuration AND MRU
-                    //   UI keybindings
-                    // - if it is enabled and open: use only MRU UI keybindings
-                    let bindings = (!mru_ui_enabled || !this.niri.window_mru_ui.is_open())
-                        .then_some(config.binds.into_iter());
+                    // Figure out the binds to use depending on whether the MRU is enabled and/or
+                    // open.
+                    let general_binds =
+                        (!this.niri.window_mru_ui.is_open()).then_some(config.binds.0.iter());
+                    let general_binds = general_binds.into_iter().flatten();
 
-                    let mru_ui_bindings =
-                        mru_ui_enabled.then_some(this.niri.window_mru_ui.bindings(mru_mod_key));
+                    let mru_binds = (config.recent_windows.on || this.niri.window_mru_ui.is_open())
+                        .then_some(config.recent_windows.binds.iter());
+                    let mru_binds = mru_binds.into_iter().flatten();
 
-                    let bindings = bindings
-                        .into_iter()
-                        .flatten()
-                        .chain(mru_ui_bindings.into_iter().flatten());
+                    let mru_open_binds = this.niri.window_mru_ui.is_open().then(|| {
+                        this.niri
+                            .window_mru_ui
+                            .opened_bindings(modifiers_from_state(*mods))
+                    });
+                    let mru_open_binds = mru_open_binds.into_iter().flatten();
+
+                    // MRU binds take precedence over general ones.
+                    let bindings = mru_binds.chain(mru_open_binds).chain(general_binds);
 
                     should_intercept_key(
                         &mut this.niri.suppressed_keys,
@@ -462,26 +470,22 @@ impl State {
                         is_inhibiting_shortcuts,
                     )
                 };
+
                 if matches!(res, FilterResult::Forward) {
+                    // If we didn't find any bind, try other hardcoded keys.
                     if this.niri.keyboard_focus.is_overview() && pressed {
-                        // If we didn't find any bind, try other hardcoded keys.
                         if let Some(bind) = raw.and_then(|raw| hardcoded_overview_bind(raw, *mods))
                         {
                             this.niri.suppressed_keys.insert(key_code);
                             return FilterResult::Intercept(Some(bind));
                         }
                     }
-                    if this.niri.window_mru_ui.is_open() {
-                        // Key events aren't sent to the focused application while the MRU UI is
-                        // open
-                        this.niri.suppressed_keys.insert(key_code);
-                        return FilterResult::Intercept(None);
-                    }
                     // Interaction with the active window, immediately update
                     // the active window's focus timestamp without waiting for a
                     // possible pending MRU lock-in delay.
                     this.niri.mru_commit();
                 }
+
                 res
             },
         ) else {
@@ -2221,7 +2225,7 @@ impl State {
                     watcher.load_config();
                 }
             }
-            Action::MruClose => {
+            Action::MruConfirm => {
                 if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
                 {
                     if let Some(window) = { self.niri.close_mru_ui(MruCloseRequest::Current) } {
@@ -2240,11 +2244,17 @@ impl State {
                     self.niri.queue_redraw_all();
                 }
             }
-            Action::MruAdvance(dir, scope, filter) => {
+            Action::MruAdvance {
+                direction,
+                scope,
+                filter,
+            } => {
                 if self.niri.config.borrow().recent_windows.on {
                     // TODO: don't reopen from scratch from closing state
                     if self.niri.window_mru_ui.is_open() {
-                        self.niri.window_mru_ui.advance(Some(dir), scope, filter);
+                        self.niri
+                            .window_mru_ui
+                            .advance(Some(direction), scope, filter);
                     } else {
                         self.niri.mru_commit();
                         let config = self.niri.config.borrow();
@@ -2258,7 +2268,7 @@ impl State {
                                     Rc::new(Options::from_config(&config)),
                                     self.niri.clock.clone(),
                                     wmru,
-                                    dir,
+                                    direction,
                                     output.clone(),
                                 );
                             }
@@ -2268,7 +2278,7 @@ impl State {
                     self.niri.queue_redraw_all();
                 }
             }
-            Action::MruCloseCurrent => {
+            Action::MruCloseCurrentWindow => {
                 if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
                 {
                     if let Some(id) = self.niri.window_mru_ui.current_window_id() {
@@ -2298,7 +2308,7 @@ impl State {
                     self.niri.queue_redraw_all();
                 }
             }
-            Action::MruChangeScope(scope) => {
+            Action::MruSetScope(scope) => {
                 if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
                 {
                     self.niri.window_mru_ui.advance(None, Some(scope), None);
@@ -2699,7 +2709,7 @@ impl State {
                 }
                 .and_then(|trigger| {
                     let config = self.niri.config.borrow();
-                    let bindings = &config.binds;
+                    let bindings = &config.binds.0;
                     find_configured_bind(bindings, mod_key, trigger, mods)
                 }) {
                     self.niri.suppressed_buttons.insert(button_code);
@@ -3049,7 +3059,7 @@ impl State {
                         (bind_left, bind_right)
                     } else {
                         let config = self.niri.config.borrow();
-                        let bindings = &config.binds;
+                        let bindings = &config.binds.0;
                         let bind_left =
                             find_configured_bind(bindings, mod_key, Trigger::WheelScrollLeft, mods);
                         let bind_right = find_configured_bind(
@@ -3131,7 +3141,7 @@ impl State {
                         (bind_up, bind_down)
                     } else {
                         let config = self.niri.config.borrow();
-                        let bindings = &config.binds;
+                        let bindings = &config.binds.0;
                         let bind_up =
                             find_configured_bind(bindings, mod_key, Trigger::WheelScrollUp, mods);
                         let bind_down =
@@ -3271,7 +3281,7 @@ impl State {
                     .accumulate(horizontal);
                 if ticks != 0 {
                     let config = self.niri.config.borrow();
-                    let bindings = &config.binds;
+                    let bindings = &config.binds.0;
                     let bind_left =
                         find_configured_bind(bindings, mod_key, Trigger::TouchpadScrollLeft, mods);
                     let bind_right =
@@ -3296,7 +3306,7 @@ impl State {
                     .accumulate(vertical);
                 if ticks != 0 {
                     let config = self.niri.config.borrow();
-                    let bindings = &config.binds;
+                    let bindings = &config.binds.0;
                     let bind_up =
                         find_configured_bind(bindings, mod_key, Trigger::TouchpadScrollUp, mods);
                     let bind_down =
@@ -4943,7 +4953,7 @@ mod tests {
         let close_key_event = |suppr: &mut HashSet<Keycode>, mods: ModifiersState, pressed| {
             should_intercept_key(
                 suppr,
-                &bindings,
+                &bindings.0,
                 comp_mod,
                 close_key_code,
                 close_keysym,
@@ -4960,7 +4970,7 @@ mod tests {
         let none_key_event = |suppr: &mut HashSet<Keycode>, mods: ModifiersState, pressed| {
             should_intercept_key(
                 suppr,
-                &bindings,
+                &bindings.0,
                 comp_mod,
                 Keycode::from(Keysym::l.raw() + 8),
                 Keysym::l,
@@ -5166,7 +5176,7 @@ mod tests {
 
         assert_eq!(
             find_configured_bind(
-                &bindings,
+                &bindings.0,
                 ModKey::Super,
                 Trigger::Keysym(Keysym::q),
                 ModifiersState {
@@ -5179,7 +5189,7 @@ mod tests {
         );
         assert_eq!(
             find_configured_bind(
-                &bindings,
+                &bindings.0,
                 ModKey::Super,
                 Trigger::Keysym(Keysym::q),
                 ModifiersState::default(),
@@ -5189,7 +5199,7 @@ mod tests {
 
         assert_eq!(
             find_configured_bind(
-                &bindings,
+                &bindings.0,
                 ModKey::Super,
                 Trigger::Keysym(Keysym::h),
                 ModifiersState {
@@ -5202,7 +5212,7 @@ mod tests {
         );
         assert_eq!(
             find_configured_bind(
-                &bindings,
+                &bindings.0,
                 ModKey::Super,
                 Trigger::Keysym(Keysym::h),
                 ModifiersState::default(),
@@ -5212,7 +5222,7 @@ mod tests {
 
         assert_eq!(
             find_configured_bind(
-                &bindings,
+                &bindings.0,
                 ModKey::Super,
                 Trigger::Keysym(Keysym::j),
                 ModifiersState {
@@ -5224,7 +5234,7 @@ mod tests {
         );
         assert_eq!(
             find_configured_bind(
-                &bindings,
+                &bindings.0,
                 ModKey::Super,
                 Trigger::Keysym(Keysym::j),
                 ModifiersState::default(),
@@ -5235,7 +5245,7 @@ mod tests {
 
         assert_eq!(
             find_configured_bind(
-                &bindings,
+                &bindings.0,
                 ModKey::Super,
                 Trigger::Keysym(Keysym::k),
                 ModifiersState {
@@ -5248,7 +5258,7 @@ mod tests {
         );
         assert_eq!(
             find_configured_bind(
-                &bindings,
+                &bindings.0,
                 ModKey::Super,
                 Trigger::Keysym(Keysym::k),
                 ModifiersState::default(),
@@ -5258,7 +5268,7 @@ mod tests {
 
         assert_eq!(
             find_configured_bind(
-                &bindings,
+                &bindings.0,
                 ModKey::Super,
                 Trigger::Keysym(Keysym::l),
                 ModifiersState {
@@ -5272,7 +5282,7 @@ mod tests {
         );
         assert_eq!(
             find_configured_bind(
-                &bindings,
+                &bindings.0,
                 ModKey::Super,
                 Trigger::Keysym(Keysym::l),
                 ModifiersState {

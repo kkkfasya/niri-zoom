@@ -12,19 +12,11 @@ use smithay::input::keyboard::keysyms::KEY_NoSymbol;
 use smithay::input::keyboard::xkb::{keysym_from_name, KEYSYM_CASE_INSENSITIVE, KEYSYM_NO_FLAGS};
 use smithay::input::keyboard::Keysym;
 
+use crate::recent_windows::{MruDirection, MruFilter, MruScope};
 use crate::utils::{expect_only_children, MergeWith};
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Binds(pub Vec<Bind>);
-
-impl<'a> IntoIterator for &'a Binds {
-    type Item = &'a Bind;
-    type IntoIter = std::slice::Iter<'a, Bind>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bind {
@@ -102,33 +94,6 @@ impl MergeWith<SwitchBinds> for SwitchBinds {
 pub struct SwitchAction {
     #[knuffel(child, unwrap(arguments))]
     pub spawn: Vec<String>,
-}
-
-#[derive(knuffel::DecodeScalar, Clone, Copy, Debug, Default, PartialEq)]
-pub enum MruDirection {
-    #[default]
-    Forward, // From most recently used to least
-    Backward, // From least recently used to most
-}
-
-#[derive(knuffel::DecodeScalar, Clone, Copy, Debug, Default, PartialEq)]
-pub enum MruScope {
-    /// Consider all windows
-    #[default]
-    All,
-    /// Consider windows on the active output
-    Output,
-    /// Consider windows on the active workspace
-    Workspace,
-}
-
-#[derive(knuffel::DecodeScalar, Clone, Copy, Debug, Default, PartialEq)]
-pub enum MruFilter {
-    /// No filter
-    #[default]
-    None,
-    /// Windows with the same AppId as the active window
-    AppId,
 }
 
 // Remember to add new actions to the CLI enum too.
@@ -401,25 +366,25 @@ pub enum Action {
     #[knuffel(skip)]
     LoadConfigFile,
     #[knuffel(skip)]
-    MruAdvance(
-        #[knuffel(argument)] MruDirection,
-        #[knuffel(property(name = "scope"))] Option<MruScope>,
-        #[knuffel(property(name = "filter"))] Option<MruFilter>,
-    ),
+    MruAdvance {
+        direction: MruDirection,
+        scope: Option<MruScope>,
+        filter: Option<MruFilter>,
+    },
     #[knuffel(skip)]
-    MruClose,
+    MruConfirm,
     #[knuffel(skip)]
     MruCancel,
     #[knuffel(skip)]
-    MruCloseCurrent,
+    MruCloseCurrentWindow,
     #[knuffel(skip)]
     MruFirst,
     #[knuffel(skip)]
     MruLast,
     #[knuffel(skip)]
-    MruChangeScope(#[knuffel(argument)] MruScope),
+    MruSetScope(MruScope),
     #[knuffel(skip)]
-    MruCycleScope(#[knuffel(argument)] MruDirection),
+    MruCycleScope(MruDirection),
 }
 
 impl From<niri_ipc::Action> for Action {
