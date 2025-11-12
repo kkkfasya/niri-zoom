@@ -1,11 +1,13 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 use std::{iter, mem};
 
 use anyhow::ensure;
 use niri_config::{
-    Action, Bind, Color, CornerRadius, Key, Modifiers, MruDirection, MruFilter, MruScope, Trigger,
+    Action, Bind, Color, Config, CornerRadius, Key, Modifiers, MruDirection, MruFilter, MruScope,
+    Trigger,
 };
 use pango::{Alignment, FontDescription};
 use pangocairo::cairo::{self, ImageSurface};
@@ -608,7 +610,8 @@ type MruTexture = TextureBuffer<GlesTexture>;
 
 pub struct WindowMruUi {
     state: WindowMruUiState,
-    opened_binds: Vec<Bind>,
+    preset_opened_binds: Vec<Bind>,
+    dynamic_opened_binds: Vec<Bind>,
 }
 
 pub enum WindowMruUiState {
@@ -764,13 +767,18 @@ niri_render_elements! {
 }
 
 impl WindowMruUi {
-    pub fn new() -> Self {
+    pub fn new(config: &Config) -> Self {
         Self {
             state: WindowMruUiState::Closed {
                 previous_scope: MruScope::default(),
             },
-            opened_binds: opened_binds(),
+            preset_opened_binds: make_preset_opened_binds(),
+            dynamic_opened_binds: make_dynamic_opened_binds(config),
         }
+    }
+
+    pub fn update_binds(&mut self, config: &Config) {
+        self.dynamic_opened_binds = make_dynamic_opened_binds(config);
     }
 
     pub fn is_open(&self) -> bool {
@@ -990,11 +998,16 @@ impl WindowMruUi {
 
     pub fn opened_bindings(&mut self, mods: Modifiers) -> impl Iterator<Item = &Bind> {
         // Fill modifiers with the current mods.
-        for bind in &mut self.opened_binds {
+        for bind in &mut self.preset_opened_binds {
+            bind.key.modifiers = mods;
+        }
+        for bind in &mut self.dynamic_opened_binds {
             bind.key.modifiers = mods;
         }
 
-        self.opened_binds.iter()
+        self.preset_opened_binds
+            .iter()
+            .chain(&self.dynamic_opened_binds)
     }
 
     pub fn output(&self) -> Option<&Output> {
@@ -1575,7 +1588,7 @@ fn make_panel(renderer: &mut GlesRenderer, scale: f64, text: &str) -> anyhow::Re
 }
 
 /// Returns key bindings available when the MRU UI is open.
-fn opened_binds() -> Vec<Bind> {
+fn make_preset_opened_binds() -> Vec<Bind> {
     let mut rv = Vec::new();
 
     let mut push = |trigger, action| {
@@ -1596,11 +1609,13 @@ fn opened_binds() -> Vec<Bind> {
 
     push(Keysym::Escape, Action::MruCancel);
     push(Keysym::Return, Action::MruConfirm);
-    push(Keysym::q, Action::MruCloseCurrentWindow);
     push(Keysym::a, Action::MruSetScope(MruScope::All));
     push(Keysym::o, Action::MruSetScope(MruScope::Output));
     push(Keysym::w, Action::MruSetScope(MruScope::Workspace));
     push(Keysym::s, Action::MruCycleScope(MruDirection::Forward));
+
+    // Leave these in since they are the most expected and generally uncontroversial keys, so that
+    // they work even if these actions are absent from the normal binds.
     push(Keysym::Home, Action::MruFirst);
     push(Keysym::End, Action::MruLast);
     push(
@@ -1619,38 +1634,64 @@ fn opened_binds() -> Vec<Bind> {
             filter: None,
         },
     );
-    push(
-        Keysym::h,
-        Action::MruAdvance {
-            direction: MruDirection::Backward,
-            scope: None,
-            filter: None,
-        },
-    );
-    push(
-        Keysym::l,
-        Action::MruAdvance {
-            direction: MruDirection::Forward,
-            scope: None,
-            filter: None,
-        },
-    );
-    push(
-        Keysym::k,
-        Action::MruAdvance {
-            direction: MruDirection::Backward,
-            scope: None,
-            filter: None,
-        },
-    );
-    push(
-        Keysym::j,
-        Action::MruAdvance {
-            direction: MruDirection::Forward,
-            scope: None,
-            filter: None,
-        },
-    );
+
+    rv
+}
+
+/// Returns dynamic key bindings available when the MRU UI is open.
+///
+/// These ones are generated based on the normal bindings.
+fn make_dynamic_opened_binds(config: &Config) -> Vec<Bind> {
+    let mut binds: HashMap<Trigger, Vec<Bind>> = HashMap::new();
+
+    for bind in &config.binds.0 {
+        let action = match bind.action {
+            Action::FocusColumnRight
+            | Action::FocusColumnRightOrFirst
+            | Action::FocusColumnOrMonitorRight
+            | Action::FocusWindowDownOrColumnRight => Action::MruAdvance {
+                direction: MruDirection::Forward,
+                scope: None,
+                filter: None,
+            },
+            Action::FocusColumnLeft
+            | Action::FocusColumnLeftOrLast
+            | Action::FocusColumnOrMonitorLeft
+            | Action::FocusWindowUpOrColumnLeft => Action::MruAdvance {
+                direction: MruDirection::Backward,
+                scope: None,
+                filter: None,
+            },
+            Action::FocusColumnFirst => Action::MruFirst,
+            Action::FocusColumnLast => Action::MruLast,
+            Action::CloseWindow => Action::MruCloseCurrentWindow,
+            _ => continue,
+        };
+
+        binds.entry(bind.key.trigger).or_default().push(Bind {
+            action,
+            ..bind.clone()
+        });
+    }
+
+    let mut rv = Vec::new();
+
+    // For each trigger, take the bind with the lowest number of modifiers.
+    for binds in binds.into_values() {
+        let bind = binds
+            .into_iter()
+            .min_by_key(|bind| bind.key.modifiers.iter().count())
+            .unwrap();
+
+        rv.push(Bind {
+            key: Key {
+                trigger: bind.key.trigger,
+                // The modifier is filled dynamically.
+                modifiers: Modifiers::empty(),
+            },
+            ..bind
+        });
+    }
 
     rv
 }

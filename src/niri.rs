@@ -1523,8 +1523,13 @@ impl State {
             preserved_output_config = Some(mem::take(&mut old_config.outputs));
         }
 
+        let binds_changed = config.binds != old_config.binds;
+        if binds_changed {
+            self.niri.window_mru_ui.update_binds(&config);
+        }
+
         let new_mod_key = self.backend.mod_key(&config);
-        if new_mod_key != self.backend.mod_key(&old_config) || config.binds != old_config.binds {
+        if new_mod_key != self.backend.mod_key(&old_config) || binds_changed {
             self.niri
                 .hotkey_overlay
                 .on_hotkey_config_updated(new_mod_key);
@@ -2616,7 +2621,7 @@ impl Niri {
         let mods_with_finger_scroll_binds = mods_with_finger_scroll_binds(mod_key, &config_.binds);
 
         let screenshot_ui = ScreenshotUi::new(animation_clock.clone(), config.clone());
-        let window_mru_ui = WindowMruUi::new();
+        let window_mru_ui = WindowMruUi::new(&config.borrow());
         let config_error_notification =
             ConfigErrorNotification::new(animation_clock.clone(), config.clone());
 

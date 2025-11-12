@@ -22,7 +22,12 @@ recent-windows {
 }
 ```
 
-TODO hardcoded binds when open
+TODO
+- hardcoded binds when open
+- list regular binds that are converted to work in the MRU
+    - focus column left/right
+    - focus column first/last
+    - close window
 
 ### `off`
 
