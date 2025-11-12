@@ -121,9 +121,6 @@ impl State {
         let hide_exit_confirm_dialog =
             self.niri.exit_confirm_dialog.is_open() && should_hide_exit_confirm_dialog(&event);
 
-        let mru_ui_open = self.niri.window_mru_ui.is_open();
-        let inhibit_tablet = mru_ui_open;
-
         let mut consumed_by_a11y = false;
         use InputEvent::*;
         match event {
@@ -133,59 +130,19 @@ impl State {
             PointerMotion { event } => self.on_pointer_motion::<I>(event),
             PointerMotionAbsolute { event } => self.on_pointer_motion_absolute::<I>(event),
             PointerButton { event } => self.on_pointer_button::<I>(event),
-            PointerAxis { event } => {
-                if !mru_ui_open {
-                    self.on_pointer_axis::<I>(event)
-                }
-            }
-            TabletToolAxis { event } => {
-                if !inhibit_tablet {
-                    self.on_tablet_tool_axis::<I>(event)
-                }
-            }
-            TabletToolTip { event } => {
-                if !inhibit_tablet {
-                    self.on_tablet_tool_tip::<I>(event)
-                }
-            }
-            TabletToolProximity { event } => {
-                if !inhibit_tablet {
-                    self.on_tablet_tool_proximity::<I>(event)
-                }
-            }
-            TabletToolButton { event } => {
-                if !inhibit_tablet {
-                    self.on_tablet_tool_button::<I>(event)
-                }
-            }
+            PointerAxis { event } => self.on_pointer_axis::<I>(event),
+            TabletToolAxis { event } => self.on_tablet_tool_axis::<I>(event),
+            TabletToolTip { event } => self.on_tablet_tool_tip::<I>(event),
+            TabletToolProximity { event } => self.on_tablet_tool_proximity::<I>(event),
+            TabletToolButton { event } => self.on_tablet_tool_button::<I>(event),
             GestureSwipeBegin { event } => self.on_gesture_swipe_begin::<I>(event),
             GestureSwipeUpdate { event } => self.on_gesture_swipe_update::<I>(event),
             GestureSwipeEnd { event } => self.on_gesture_swipe_end::<I>(event),
-            GesturePinchBegin { event } => {
-                if !mru_ui_open {
-                    self.on_gesture_pinch_begin::<I>(event)
-                }
-            }
-            GesturePinchUpdate { event } => {
-                if !mru_ui_open {
-                    self.on_gesture_pinch_update::<I>(event)
-                }
-            }
-            GesturePinchEnd { event } => {
-                if !mru_ui_open {
-                    self.on_gesture_pinch_end::<I>(event)
-                }
-            }
-            GestureHoldBegin { event } => {
-                if !mru_ui_open {
-                    self.on_gesture_hold_begin::<I>(event)
-                }
-            }
-            GestureHoldEnd { event } => {
-                if !mru_ui_open {
-                    self.on_gesture_hold_end::<I>(event)
-                }
-            }
+            GesturePinchBegin { event } => self.on_gesture_pinch_begin::<I>(event),
+            GesturePinchUpdate { event } => self.on_gesture_pinch_update::<I>(event),
+            GesturePinchEnd { event } => self.on_gesture_pinch_end::<I>(event),
+            GestureHoldBegin { event } => self.on_gesture_hold_begin::<I>(event),
+            GestureHoldEnd { event } => self.on_gesture_hold_end::<I>(event),
             TouchDown { event } => self.on_touch_down::<I>(event),
             TouchMotion { event } => self.on_touch_motion::<I>(event),
             TouchUp { event } => self.on_touch_up::<I>(event),
