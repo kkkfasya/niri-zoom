@@ -2450,9 +2450,7 @@ impl State {
         if let Some(mru_output) = self.niri.window_mru_ui.output() {
             if let Some((output, pos_within_output)) = self.niri.output_under(new_pos) {
                 if mru_output == output {
-                    if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
-                        self.niri.window_mru_ui.set_current(id);
-                    }
+                    self.niri.window_mru_ui.pointer_motion(pos_within_output);
                 }
             }
         }
@@ -2590,9 +2588,7 @@ impl State {
         if let Some(mru_output) = self.niri.window_mru_ui.output() {
             if let Some((output, pos_within_output)) = self.niri.output_under(pos) {
                 if mru_output == output {
-                    if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
-                        self.niri.window_mru_ui.set_current(id);
-                    }
+                    self.niri.window_mru_ui.pointer_motion(pos_within_output);
                 }
             }
         }

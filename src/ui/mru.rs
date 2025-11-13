@@ -656,6 +656,9 @@ pub struct Inner {
     /// View position relative to the leftmost visible window.
     view_pos: ViewPos,
 
+    // If true, don't automatically move the current thumbnail in-view. Set on pointer motion.
+    freeze_view: bool,
+
     /// Animation clock
     clock: Clock,
 
@@ -823,6 +826,7 @@ impl WindowMruUi {
             wmru,
             options,
             view_pos: ViewPos::Static(0.),
+            freeze_view: false,
             // closing_thumbnails: vec![],
             open_at: clock.now_unadjusted() + OPEN_DELAY,
             clock,
@@ -876,6 +880,7 @@ impl WindowMruUi {
         let WindowMruUiState::Open(inner) = &mut self.state else {
             return;
         };
+        inner.freeze_view = false;
 
         let new_scope = scope.unwrap_or(inner.wmru.scope);
         let changed = inner.set_scope_and_filter(new_scope, filter);
@@ -889,17 +894,23 @@ impl WindowMruUi {
         }
     }
 
-    pub fn set_current(&mut self, id: MappedId) {
+    pub fn pointer_motion(&mut self, pos_within_output: Point<f64, Logical>) {
         let WindowMruUiState::Open(inner) = &mut self.state else {
             return;
         };
-        inner.wmru.set_current(id);
+
+        inner.freeze_view = true;
+
+        if let Some(id) = inner.thumbnail_under(pos_within_output) {
+            inner.wmru.set_current(id);
+        }
     }
 
     pub fn first(&mut self) {
         let WindowMruUiState::Open(ref mut inner) = self.state else {
             return;
         };
+        inner.freeze_view = false;
         inner.wmru.first();
     }
 
@@ -907,6 +918,7 @@ impl WindowMruUi {
         let WindowMruUiState::Open(ref mut inner) = self.state else {
             return;
         };
+        inner.freeze_view = false;
         inner.wmru.last();
     }
 
@@ -1081,13 +1093,15 @@ impl Inner {
         //     .retain_mut(|closing| closing.are_animations_ongoing());
         self.wmru.advance_animations();
 
-        let new_view_pos = self.compute_view_pos();
-        let delta = new_view_pos - self.view_pos.target();
-        let pixel = 1. / self.output.current_scale().fractional_scale();
-        if delta.abs() > pixel {
-            self.animate_view_pos_from(-delta);
+        if !self.freeze_view {
+            let new_view_pos = self.compute_view_pos();
+            let delta = new_view_pos - self.view_pos.target();
+            let pixel = 1. / self.output.current_scale().fractional_scale();
+            if delta.abs() > pixel {
+                self.animate_view_pos_from(-delta);
+            }
+            self.view_pos.offset(delta);
         }
-        self.view_pos.offset(delta);
     }
 
     fn animate_view_pos_from(&mut self, from: f64) {
