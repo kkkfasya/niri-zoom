@@ -283,13 +283,22 @@ impl Thumbnail {
 
         let mut title_size = None;
         let title_texture = self.title_texture(renderer.as_gles_renderer(), mapped, scale);
-        let title_elems = title_texture.map(|title_texture| {
-            let mut size = title_texture.logical_size();
+        let title_texture = title_texture.map(|texture| {
+            let mut size = texture.logical_size();
             size.w = f64::min(size.w, preview_geo.size.w);
-            // TODO: fade end if doesn't fit.
-            let src = Rectangle::from_size(size);
-
             title_size = Some(size);
+            (texture, size)
+        });
+
+        // Hide title for blocked-out windows, but only after computing the title size. This way,
+        // the background and the border won't have to oscillate in size between normal and
+        // screencast renders, causing excessive damage.
+        let should_block_out = target.should_block_out(mapped.rules().block_out_from);
+        let title_texture = title_texture.filter(|_| !should_block_out);
+
+        let title_elems = title_texture.map(|(texture, size)| {
+            // Clip from the right if it doesn't fit.
+            let src = Rectangle::from_size(size);
 
             let loc = preview_geo.loc
                 + Point::new(
@@ -298,7 +307,7 @@ impl Thumbnail {
                 );
             let loc = loc.to_physical_precise_round(scale).to_logical(scale);
             let texture = TextureRenderElement::from_texture_buffer(
-                title_texture,
+                texture,
                 loc,
                 preview_alpha,
                 Some(src),
