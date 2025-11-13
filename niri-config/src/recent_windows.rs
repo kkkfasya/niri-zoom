@@ -236,11 +236,20 @@ where
             .parse::<Key>()
             .map_err(|e| DecodeError::conversion(&node.node_name, e.wrap_err("invalid keybind")))?;
 
+        // A modifier is required because MRU remains on screen as long as any modifier is held.
         if key.modifiers.is_empty() {
             ctx.emit_error(DecodeError::unexpected(
                 &node.node_name,
                 "keybind",
                 "keybind must have a modifier key",
+            ));
+        }
+
+        if !matches!(key.trigger, Trigger::Keysym(_)) {
+            ctx.emit_error(DecodeError::unexpected(
+                &node.node_name,
+                "key",
+                "key must be a keyboard key (others are unsupported here for now)",
             ));
         }
 
