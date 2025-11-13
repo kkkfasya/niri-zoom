@@ -86,7 +86,7 @@ const PANEL_PADDING: i32 = 8;
 const PANEL_BORDER: i32 = 4;
 
 /// Backdrop color behind the previews.
-const BACKDROP_COLOR: Color32F = Color32F::new(0., 0., 0., 0.7);
+const BACKDROP_COLOR: Color32F = Color32F::new(0., 0., 0., 0.8);
 
 /// Font used to render the window titles.
 const FONT: &str = "sans 14px";
@@ -325,7 +325,8 @@ impl Thumbnail {
             }
         });
 
-        let background_elems = is_active.then(|| {
+        let is_urgent = mapped.is_urgent();
+        let background_elems = (is_active || is_urgent).then(|| {
             let padding = Point::new(padding, padding);
 
             let mut size = preview_geo.size;
@@ -337,17 +338,29 @@ impl Thumbnail {
                 size.h -= padding.y / 2.;
             }
 
+            let mut color = if is_urgent {
+                Color::new_unpremul(1., 0.6, 0.6, 1.)
+            } else {
+                Color::new_unpremul(0.6, 0.6, 0.6, 1.)
+            };
+            if !is_active {
+                color *= 0.3;
+            }
+
             let mut buffer = self.background_buffer.borrow_mut();
             buffer.resize(size);
+            buffer.set_color(color);
 
             let loc = preview_geo.loc - padding;
             let elem =
-                SolidColorRenderElement::from_buffer(&buffer, loc, 0.2 * alpha, Kind::Unspecified);
+                SolidColorRenderElement::from_buffer(&buffer, loc, 0.5 * alpha, Kind::Unspecified);
             let elem = WindowMruUiRenderElement::SolidColor(elem);
 
             let mut border = self.border.borrow_mut();
             let mut config = *border.config();
+            config.off = !is_active;
             config.width = round(BORDER);
+            config.active_color = color;
             border.update_config(config);
             border.update_render_elements(
                 size,
@@ -357,7 +370,7 @@ impl Thumbnail {
                 Rectangle::default(),
                 CornerRadius::default(),
                 scale,
-                0.4 * alpha,
+                alpha,
             );
 
             let elems = border
