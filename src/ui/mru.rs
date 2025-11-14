@@ -45,12 +45,6 @@ use crate::window::Mapped;
 #[cfg(test)]
 mod tests;
 
-/// Delay before the MRU is shown.
-///
-/// We use a delay instead of a fade-in so that quick Alt-Tab presses don't cause any annoying
-/// fullscreen UI appearing back and forth.
-const OPEN_DELAY: Duration = Duration::from_millis(150);
-
 /// Maximum height a window preview can be, in logical pixels.
 ///
 /// The idea is that on bigger monitors it is not necessary to keep scaling up the window previews,
@@ -846,12 +840,15 @@ impl WindowMruUi {
             return;
         }
 
+        let open_delay = self.config.borrow().recent_windows.open_delay_ms;
+        let open_delay = Duration::from_millis(u64::from(open_delay));
+
         let mut inner = Inner {
             wmru,
             view_pos: ViewPos::Static(0.),
             freeze_view: false,
             // closing_thumbnails: vec![],
-            open_at: clock.now_unadjusted() + OPEN_DELAY,
+            open_at: clock.now_unadjusted() + open_delay,
             clock,
             config: self.config.clone(),
             output,

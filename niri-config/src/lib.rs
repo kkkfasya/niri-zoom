@@ -2168,6 +2168,7 @@ mod tests {
             ],
             recent_windows: RecentWindows {
                 on: false,
+                open_delay_ms: 150,
                 binds: [
                     Bind {
                         key: Key {

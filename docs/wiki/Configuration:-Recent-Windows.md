@@ -7,6 +7,7 @@ The available settings and their respective default values are summarized below:
 ```kdl
 recent-windows {
     // off
+    open-delay-ms 150
 
     binds {
         Alt+Tab         { next-window; }

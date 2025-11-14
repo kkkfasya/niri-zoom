@@ -13,6 +13,7 @@ pub const DEFAULT_MRU_COMMIT_MS: u64 = 750;
 #[derive(Debug, PartialEq)]
 pub struct RecentWindows {
     pub on: bool,
+    pub open_delay_ms: u16,
     pub binds: Vec<Bind>,
 }
 
@@ -20,6 +21,7 @@ impl Default for RecentWindows {
     fn default() -> Self {
         RecentWindows {
             on: true,
+            open_delay_ms: 150,
             binds: default_binds(),
         }
     }
@@ -31,6 +33,8 @@ pub struct RecentWindowsPart {
     pub on: bool,
     #[knuffel(child)]
     pub off: bool,
+    #[knuffel(child, unwrap(argument))]
+    pub open_delay_ms: Option<u16>,
     #[knuffel(child)]
     pub binds: Option<MruBinds>,
 }
@@ -41,6 +45,8 @@ impl MergeWith<RecentWindowsPart> for RecentWindows {
         if part.off {
             self.on = false;
         }
+
+        merge_clone!((self, part), open_delay_ms);
 
         if let Some(part) = &part.binds {
             // Remove existing binds matching any new bind.
