@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use anyhow::ensure;
 use niri_config::{
-    Action, Bind, Color, Config, CornerRadius, Key, Modifiers, MruDirection, MruFilter, MruScope,
-    Trigger,
+    Action, Bind, Color, Config, CornerRadius, GradientInterpolation, Key, Modifiers, MruDirection,
+    MruFilter, MruScope, Trigger,
 };
 use pango::FontDescription;
 use pangocairo::cairo::{self, ImageSurface};
@@ -27,6 +27,7 @@ use crate::layout::focus_ring::{FocusRing, FocusRingRenderElement};
 use crate::layout::{Layout, LayoutElement as _, LayoutElementRenderElement, Options};
 use crate::niri::Niri;
 use crate::niri_render_elements;
+use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::clipped_surface::ClippedSurfaceRenderElement;
 use crate::render_helpers::gradient_fade_texture::GradientFadeTextureRenderElement;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
@@ -244,9 +245,17 @@ impl Thumbnail {
             .into_iter();
 
         // Clip thumbnails to their geometry.
+        let radius = if mapped.sizing_mode().is_normal() {
+            mapped.rules().geometry_corner_radius
+        } else {
+            None
+        }
+        .unwrap_or_default();
+
+        let has_border_shader = BorderRenderElement::has_shader(renderer);
         let clip_shader = ClippedSurfaceRenderElement::shader(renderer).cloned();
-        let radius = CornerRadius::default();
         let geo = Rectangle::from_size(self.size.to_f64());
+        // FIXME: deduplicate code with Tile::render_inner()
         let elems = elems.map(move |elem| match elem {
             LayoutElementRenderElement::Wayland(elem) => {
                 if let Some(shader) = clip_shader.clone() {
@@ -262,7 +271,30 @@ impl Thumbnail {
                 ThumbnailRenderElement::LayoutElement(elem)
             }
             LayoutElementRenderElement::SolidColor(elem) => {
-                // Square radius means we can render it as is.
+                // In this branch we're rendering a blocked-out window with a solid
+                // color. We need to render it with a rounded corner shader even if
+                // clip_to_geometry is false, because in this case we're assuming that
+                // the unclipped window CSD already has corners rounded to the
+                // user-provided radius, so our blocked-out rendering should match that
+                // radius.
+                if radius != CornerRadius::default() && has_border_shader {
+                    return BorderRenderElement::new(
+                        geo.size,
+                        Rectangle::from_size(geo.size),
+                        GradientInterpolation::default(),
+                        Color::from_color32f(elem.color()),
+                        Color::from_color32f(elem.color()),
+                        0.,
+                        Rectangle::from_size(geo.size),
+                        0.,
+                        radius,
+                        scale as f32,
+                        1.,
+                    )
+                    .into();
+                }
+
+                // Otherwise, render the solid color as is.
                 LayoutElementRenderElement::SolidColor(elem).into()
             }
         });
@@ -760,6 +792,7 @@ niri_render_elements! {
     ThumbnailRenderElement<R> => {
         LayoutElement = LayoutElementRenderElement<R>,
         ClippedSurface = ClippedSurfaceRenderElement<R>,
+        Border = BorderRenderElement,
     }
 }
 
