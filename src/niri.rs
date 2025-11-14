@@ -3182,6 +3182,11 @@ impl Niri {
                 .set_cursor_image(CursorImageStatus::default_named());
             self.queue_redraw_all();
         }
+
+        if self.window_mru_ui.output() == Some(output) {
+            self.window_mru_ui.close(MruCloseRequest::Cancelled);
+            self.queue_redraw_all();
+        }
     }
 
     pub fn output_resized(&mut self, output: &Output) {
@@ -6508,6 +6513,11 @@ impl Niri {
     }
 
     pub fn close_mru_ui(&mut self, close_request: MruCloseRequest) -> Option<Window> {
+        if !self.window_mru_ui.is_open() {
+            return None;
+        }
+        self.queue_redraw_all();
+
         let id = self.window_mru_ui.close(close_request)?;
         self.find_window_by_id(id)
     }
@@ -6525,6 +6535,12 @@ impl Niri {
                 window.update_focus_timestamp(pending.stamp);
             }
             self.event_loop.remove(pending.token);
+        }
+    }
+
+    pub fn queue_redraw_mru_output(&mut self) {
+        if let Some(output) = self.window_mru_ui.output().cloned() {
+            self.queue_redraw(&output);
         }
     }
 }

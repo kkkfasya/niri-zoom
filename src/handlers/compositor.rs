@@ -312,6 +312,7 @@ impl CompositorHandler for State {
 
                     if let Some(output) = output {
                         self.niri.queue_redraw(&output);
+                        self.niri.queue_redraw_mru_output();
                     }
                     return;
                 }
@@ -359,6 +360,7 @@ impl CompositorHandler for State {
 
                 if let Some(output) = output {
                     self.niri.queue_redraw(&output);
+                    self.niri.queue_redraw_mru_output();
                 }
                 return;
             }
@@ -378,6 +380,7 @@ impl CompositorHandler for State {
             self.niri.layout.update_window(&window, None);
             if let Some(output) = output {
                 self.niri.queue_redraw(&output);
+                self.niri.queue_redraw_mru_output();
             }
             return;
         }

@@ -2225,19 +2225,14 @@ impl State {
                 }
             }
             Action::MruConfirm => {
-                if self.niri.window_mru_ui.is_open() {
-                    if let Some(window) = { self.niri.close_mru_ui(MruCloseRequest::Current) } {
-                        // Transfer focus to the selected window id.
-                        self.focus_window(&window);
-                    }
-                    // FIXME: granular
-                    self.niri.queue_redraw_all();
+                if let Some(window) = self.niri.close_mru_ui(MruCloseRequest::Current) {
+                    // Transfer focus to the selected window id.
+                    self.focus_window(&window);
                 }
             }
             Action::MruCancel => {
                 if self.niri.window_mru_ui.is_open() {
                     self.niri.window_mru_ui.close(MruCloseRequest::Cancelled);
-                    // FIXME: granular
                     self.niri.queue_redraw_all();
                 }
             }
@@ -2246,33 +2241,33 @@ impl State {
                 scope,
                 filter,
             } => {
-                if self.niri.config.borrow().recent_windows.on {
+                if self.niri.window_mru_ui.is_open() {
+                    self.niri
+                        .window_mru_ui
+                        .advance(Some(direction), scope, filter);
+                    self.niri.queue_redraw_mru_output();
+                } else if self.niri.config.borrow().recent_windows.on {
                     // TODO: don't reopen from scratch from closing state
-                    if self.niri.window_mru_ui.is_open() {
-                        self.niri
-                            .window_mru_ui
-                            .advance(Some(direction), scope, filter);
-                    } else {
-                        self.niri.mru_commit();
-                        let config = self.niri.config.borrow();
-                        let scope = scope.unwrap_or(self.niri.window_mru_ui.scope());
-                        let mut wmru = WindowMru::new(&self.niri);
-                        if !wmru.is_empty() {
-                            wmru.set_scope_and_filter(scope, filter);
+                    self.niri.mru_commit();
+                    let config = self.niri.config.borrow();
+                    let scope = scope.unwrap_or(self.niri.window_mru_ui.scope());
+                    let mut wmru = WindowMru::new(&self.niri);
+                    if !wmru.is_empty() {
+                        wmru.set_scope_and_filter(scope, filter);
 
-                            if let Some(output) = self.niri.layout.active_output() {
-                                self.niri.window_mru_ui.open(
-                                    Rc::new(Options::from_config(&config)),
-                                    self.niri.clock.clone(),
-                                    wmru,
-                                    direction,
-                                    output.clone(),
-                                );
-                            }
+                        if let Some(output) = self.niri.layout.active_output() {
+                            self.niri.window_mru_ui.open(
+                                Rc::new(Options::from_config(&config)),
+                                self.niri.clock.clone(),
+                                wmru,
+                                direction,
+                                output.clone(),
+                            );
+
+                            drop(config);
+                            self.niri.queue_redraw_all();
                         }
                     }
-                    // FIXME: granular
-                    self.niri.queue_redraw_all();
                 }
             }
             Action::MruCloseCurrentWindow => {
@@ -2289,29 +2284,25 @@ impl State {
             Action::MruFirst => {
                 if self.niri.window_mru_ui.is_open() {
                     self.niri.window_mru_ui.first();
-                    // FIXME: granular
-                    self.niri.queue_redraw_all();
+                    self.niri.queue_redraw_mru_output();
                 }
             }
             Action::MruLast => {
                 if self.niri.window_mru_ui.is_open() {
                     self.niri.window_mru_ui.last();
-                    // FIXME: granular
-                    self.niri.queue_redraw_all();
+                    self.niri.queue_redraw_mru_output();
                 }
             }
             Action::MruSetScope(scope) => {
                 if self.niri.window_mru_ui.is_open() {
                     self.niri.window_mru_ui.advance(None, Some(scope), None);
-                    // FIXME: granular
-                    self.niri.queue_redraw_all();
+                    self.niri.queue_redraw_mru_output();
                 }
             }
             Action::MruCycleScope => {
                 if self.niri.window_mru_ui.is_open() {
                     self.niri.window_mru_ui.cycle_scope();
-                    // FIXME: granular
-                    self.niri.queue_redraw_all();
+                    self.niri.queue_redraw_mru_output();
                 }
             }
         }
