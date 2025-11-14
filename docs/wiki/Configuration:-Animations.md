@@ -58,6 +58,10 @@ animations {
     overview-open-close {
         spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
     }
+
+    recent-windows-close {
+        spring damping-ratio=1.0 stiffness=800 epsilon=0.001
+    }
 }
 ```
 

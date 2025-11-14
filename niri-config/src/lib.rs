@@ -1547,14 +1547,14 @@ mod tests {
                         ),
                     },
                 ),
-                window_mru_ui_open_close: WindowMruUiOpenCloseAnim(
+                recent_windows_close: RecentWindowsCloseAnim(
                     Animation {
                         off: false,
                         kind: Spring(
                             SpringParams {
                                 damping_ratio: 1.0,
                                 stiffness: 800,
-                                epsilon: 0.0001,
+                                epsilon: 0.001,
                             },
                         ),
                     },

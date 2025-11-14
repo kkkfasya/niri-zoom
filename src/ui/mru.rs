@@ -885,7 +885,7 @@ impl WindowMruUi {
         }
 
         let config = self.config.borrow();
-        let config = config.animations.window_mru_ui_open_close.0;
+        let config = config.animations.recent_windows_close.0;
 
         let anim = Animation::new(inner.clock.clone(), 1., 0., 0., config);
         self.state = WindowMruUiState::Closing { inner, anim };

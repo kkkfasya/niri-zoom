@@ -18,7 +18,7 @@ pub struct Animations {
     pub exit_confirmation_open_close: ExitConfirmationOpenCloseAnim,
     pub screenshot_ui_open: ScreenshotUiOpenAnim,
     pub overview_open_close: OverviewOpenCloseAnim,
-    pub window_mru_ui_open_close: WindowMruUiOpenCloseAnim,
+    pub recent_windows_close: RecentWindowsCloseAnim,
 }
 
 impl Default for Animations {
@@ -36,7 +36,7 @@ impl Default for Animations {
             exit_confirmation_open_close: Default::default(),
             screenshot_ui_open: Default::default(),
             overview_open_close: Default::default(),
-            window_mru_ui_open_close: Default::default(),
+            recent_windows_close: Default::default(),
         }
     }
 }
@@ -70,7 +70,7 @@ pub struct AnimationsPart {
     #[knuffel(child)]
     pub overview_open_close: Option<OverviewOpenCloseAnim>,
     #[knuffel(child)]
-    pub window_mru_ui_open_close: Option<WindowMruUiOpenCloseAnim>,
+    pub recent_windows_close: Option<RecentWindowsCloseAnim>,
 }
 
 impl MergeWith<AnimationsPart> for Animations {
@@ -310,16 +310,16 @@ impl Default for OverviewOpenCloseAnim {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct WindowMruUiOpenCloseAnim(pub Animation);
+pub struct RecentWindowsCloseAnim(pub Animation);
 
-impl Default for WindowMruUiOpenCloseAnim {
+impl Default for RecentWindowsCloseAnim {
     fn default() -> Self {
         Self(Animation {
             off: false,
             kind: Kind::Spring(SpringParams {
                 damping_ratio: 1.,
                 stiffness: 800,
-                epsilon: 0.0001,
+                epsilon: 0.001,
             }),
         })
     }
@@ -508,7 +508,7 @@ where
     }
 }
 
-impl<S> knuffel::Decode<S> for WindowMruUiOpenCloseAnim
+impl<S> knuffel::Decode<S> for RecentWindowsCloseAnim
 where
     S: knuffel::traits::ErrorSpan,
 {
