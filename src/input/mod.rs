@@ -685,6 +685,7 @@ impl State {
             }
             Action::Screenshot(show_cursor, path) => {
                 self.open_screenshot_ui(show_cursor, path);
+                self.niri.window_mru_ui.close(MruCloseRequest::Cancelled);
             }
             Action::ScreenshotWindow(write_to_disk, path) => {
                 let focus = self.niri.layout.focus_with_output();

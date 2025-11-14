@@ -1736,7 +1736,7 @@ fn make_dynamic_opened_binds(config: &Config) -> Vec<Bind> {
     let mut binds: HashMap<Trigger, Vec<Bind>> = HashMap::new();
 
     for bind in &config.binds.0 {
-        let action = match bind.action {
+        let action = match &bind.action {
             Action::FocusColumnRight
             | Action::FocusColumnRightOrFirst
             | Action::FocusColumnOrMonitorRight
@@ -1756,6 +1756,7 @@ fn make_dynamic_opened_binds(config: &Config) -> Vec<Bind> {
             Action::FocusColumnFirst => Action::MruFirst,
             Action::FocusColumnLast => Action::MruLast,
             Action::CloseWindow => Action::MruCloseCurrentWindow,
+            x @ Action::Screenshot(_, _) => x.clone(),
             _ => continue,
         };
 
