@@ -598,7 +598,7 @@ impl HitType {
 }
 
 impl Options {
-    pub fn from_config(config: &Config) -> Self {
+    fn from_config(config: &Config) -> Self {
         Self {
             layout: config.layout.clone(),
             animations: config.animations.clone(),

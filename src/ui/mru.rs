@@ -24,7 +24,7 @@ use smithay::utils::{Logical, Point, Rectangle, Scale, Size, Transform};
 
 use crate::animation::{Animation, Clock};
 use crate::layout::focus_ring::{FocusRing, FocusRingRenderElement};
-use crate::layout::{Layout, LayoutElement as _, LayoutElementRenderElement, Options};
+use crate::layout::{Layout, LayoutElement as _, LayoutElementRenderElement};
 use crate::niri::Niri;
 use crate::niri_render_elements;
 use crate::render_helpers::border::BorderRenderElement;
@@ -683,6 +683,7 @@ pub struct WindowMruUi {
     state: WindowMruUiState,
     preset_opened_binds: Vec<Bind>,
     dynamic_opened_binds: Vec<Bind>,
+    config: Rc<RefCell<Config>>,
 }
 
 pub enum WindowMruUiState {
@@ -711,15 +712,15 @@ pub struct Inner {
     /// Animation clock.
     clock: Clock,
 
+    /// Current config.
+    config: Rc<RefCell<Config>>,
+
     /// Time when the UI should appear.
     open_at: Duration,
 
     /// Thumbnails linked to windows that were just closed, or to windows
     /// that no longer match the current MRU filter or scope.
     // closing_thumbnails: Vec<ClosingThumbnail>,
-
-    /// Configurable properties of the layout.
-    options: Rc<Options>,
 
     /// Output the UI was opened on.
     output: Output,
@@ -819,44 +820,40 @@ niri_render_elements! {
 }
 
 impl WindowMruUi {
-    pub fn new(config: &Config) -> Self {
-        Self {
+    pub fn new(config: Rc<RefCell<Config>>) -> Self {
+        let mut rv = Self {
             state: WindowMruUiState::Closed {
                 previous_scope: MruScope::default(),
             },
             preset_opened_binds: make_preset_opened_binds(),
-            dynamic_opened_binds: make_dynamic_opened_binds(config),
-        }
+            dynamic_opened_binds: Vec::new(),
+            config,
+        };
+        rv.update_binds();
+        rv
     }
 
-    pub fn update_binds(&mut self, config: &Config) {
-        self.dynamic_opened_binds = make_dynamic_opened_binds(config);
+    pub fn update_binds(&mut self) {
+        self.dynamic_opened_binds = make_dynamic_opened_binds(&self.config.borrow());
     }
 
     pub fn is_open(&self) -> bool {
         matches!(self.state, WindowMruUiState::Open { .. })
     }
 
-    pub fn open(
-        &mut self,
-        options: Rc<Options>,
-        clock: Clock,
-        wmru: WindowMru,
-        dir: MruDirection,
-        output: Output,
-    ) {
+    pub fn open(&mut self, clock: Clock, wmru: WindowMru, dir: MruDirection, output: Output) {
         if self.is_open() {
             return;
         }
 
         let mut inner = Inner {
             wmru,
-            options,
             view_pos: ViewPos::Static(0.),
             freeze_view: false,
             // closing_thumbnails: vec![],
             open_at: clock.now_unadjusted() + OPEN_DELAY,
             clock,
+            config: self.config.clone(),
             output,
             scope_panel: Default::default(),
             backdrop_buffers: Default::default(),
@@ -892,7 +889,8 @@ impl WindowMruUi {
             return response;
         }
 
-        let config = inner.options.animations.window_mru_ui_open_close.0;
+        let config = self.config.borrow();
+        let config = config.animations.window_mru_ui_open_close.0;
 
         let anim = Animation::new(inner.clock.clone(), 1., 0., 0., config);
         self.state = WindowMruUiState::Closing { inner, anim };
@@ -1147,11 +1145,9 @@ impl Inner {
     }
 
     fn animate_view_pos_from(&mut self, from: f64) {
-        self.view_pos.animate_from_with_config(
-            from,
-            self.options.animations.window_movement.0,
-            self.clock.clone(),
-        );
+        let config = self.config.borrow().animations.window_movement.0;
+        self.view_pos
+            .animate_from_with_config(from, config, self.clock.clone());
     }
 
     fn compute_view_pos(&self) -> f64 {
@@ -1238,6 +1234,8 @@ impl Inner {
             let prev_size = self.wmru.thumbnails[idx].preview_size(output_size, scale);
             let delta = prev_size.w + gap;
 
+            let config = self.config.borrow().animations.window_movement.0;
+
             // If the removed window is to the left of the currently selected one, we need to offset
             // the view position to compensate for the change.
             if self.wmru.thumbnail_left_of_current(id).is_some() {
@@ -1245,18 +1243,12 @@ impl Inner {
 
                 // And animate movement of windows left of it.
                 for thumbnail in self.wmru.thumbnails_mut().take_while(|t| t.id != id) {
-                    thumbnail.animate_move_from_with_config(
-                        -delta,
-                        self.options.animations.window_movement.0,
-                    );
+                    thumbnail.animate_move_from_with_config(-delta, config);
                 }
             } else {
                 // Otherwise, animate movement of windows right of it.
                 for thumbnail in self.wmru.thumbnails_mut().rev().take_while(|t| t.id != id) {
-                    thumbnail.animate_move_from_with_config(
-                        delta,
-                        self.options.animations.window_movement.0,
-                    );
+                    thumbnail.animate_move_from_with_config(delta, config);
                 }
             }
         }
@@ -1284,11 +1276,12 @@ impl Inner {
         let idx = self.wmru.idx_of(id).unwrap();
 
         // Animate opening for newly appeared thumbnails.
+        let config = self.config.borrow().animations.window_open.anim;
         let matches_old = match_filter(old_scope, old_filter.as_deref());
         let matches_new = match_filter(self.wmru.scope, self.wmru.app_id_filter.as_deref());
         for thumbnail in &mut self.wmru.thumbnails {
             if matches_new(thumbnail) && !matches_old(thumbnail) {
-                thumbnail.animate_open_with_config(self.options.animations.window_open.anim);
+                thumbnail.animate_open_with_config(config);
             }
         }
 
@@ -1302,13 +1295,12 @@ impl Inner {
         let round = move |logical: f64| round_logical_in_physical(scale, logical);
         let gap = round(GAP);
 
+        let config = self.config.borrow().animations.window_movement.0;
+
         let mut delta = 0.;
         for t in &mut self.wmru.thumbnails[idx + 1..] {
             match (matches_old(t), matches_new(t)) {
-                (true, true) => t.animate_move_from_with_config(
-                    delta,
-                    self.options.animations.window_movement.0,
-                ),
+                (true, true) => t.animate_move_from_with_config(delta, config),
                 (true, false) => delta += t.preview_size(output_size, scale).w + gap,
                 (false, true) => delta -= t.preview_size(output_size, scale).w + gap,
                 (false, false) => (),
@@ -1318,10 +1310,7 @@ impl Inner {
         let mut delta = 0.;
         for t in self.wmru.thumbnails[..idx].iter_mut().rev() {
             match (matches_old(t), matches_new(t)) {
-                (true, true) => t.animate_move_from_with_config(
-                    -delta,
-                    self.options.animations.window_movement.0,
-                ),
+                (true, true) => t.animate_move_from_with_config(-delta, config),
                 (true, false) => delta += t.preview_size(output_size, scale).w + gap,
                 (false, true) => delta -= t.preview_size(output_size, scale).w + gap,
                 (false, false) => (),

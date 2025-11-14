@@ -1524,10 +1524,6 @@ impl State {
         }
 
         let binds_changed = config.binds != old_config.binds;
-        if binds_changed {
-            self.niri.window_mru_ui.update_binds(&config);
-        }
-
         let new_mod_key = self.backend.mod_key(&config);
         if new_mod_key != self.backend.mod_key(&old_config) || binds_changed {
             self.niri
@@ -1667,6 +1663,10 @@ impl State {
             // Force reset due to timeout change.
             self.niri.pointer_inactivity_timer_got_reset = false;
             self.niri.reset_pointer_inactivity_timer();
+        }
+
+        if binds_changed {
+            self.niri.window_mru_ui.update_binds();
         }
 
         if xwls_changed {
@@ -2621,7 +2621,7 @@ impl Niri {
         let mods_with_finger_scroll_binds = mods_with_finger_scroll_binds(mod_key, &config_.binds);
 
         let screenshot_ui = ScreenshotUi::new(animation_clock.clone(), config.clone());
-        let window_mru_ui = WindowMruUi::new(&config.borrow());
+        let window_mru_ui = WindowMruUi::new(config.clone());
         let config_error_notification =
             ConfigErrorNotification::new(animation_clock.clone(), config.clone());
 
