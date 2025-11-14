@@ -1604,12 +1604,14 @@ fn generate_scope_panels(
     scale: f64,
 ) -> anyhow::Result<[MruTexture; 3]> {
     fn make_panel_text(idx: usize) -> String {
-        let span_unselected = "<span fgcolor='#555555'>";
-        let span_shortcut = "<span face='mono' bgcolor='#2C2C2C' letter_spacing='5000'>";
+        let span_unselected = "<span fgcolor='#999999'>";
         let span_end = "</span>";
+        let span_shortcut = "<span face='mono' bgcolor='#2C2C2C' letter_spacing='5000'><b>";
+        let span_shortcut_end = "</b></span>";
 
         // Starts with a zero-width space to make letter_spacing work on the left.
-        let mut buf = format!("\u{200B}{span_unselected}{span_shortcut}S{span_end}cope:{span_end}");
+        let mut buf =
+            format!("\u{200B}{span_unselected}{span_shortcut}S{span_shortcut_end}cope:{span_end}");
 
         for scope in SCOPE_CYCLE {
             buf.push_str("  ");
@@ -1617,9 +1619,9 @@ fn generate_scope_panels(
                 buf.push_str(span_unselected);
             }
             let text = match scope {
-                MruScope::All => format!("{span_shortcut}A{span_end}ll"),
-                MruScope::Output => format!("{span_shortcut}O{span_end}utput"),
-                MruScope::Workspace => format!("{span_shortcut}W{span_end}orkspace"),
+                MruScope::All => format!("{span_shortcut}A{span_shortcut_end}ll"),
+                MruScope::Output => format!("{span_shortcut}O{span_shortcut_end}utput"),
+                MruScope::Workspace => format!("{span_shortcut}W{span_shortcut_end}orkspace"),
             };
             buf.push_str(&text);
             if scope as usize != idx {
@@ -1680,7 +1682,7 @@ fn render_panel(renderer: &mut GlesRenderer, scale: f64, text: &str) -> anyhow::
     cr.line_to(width.into(), height.into());
     cr.line_to(0., height.into());
     cr.line_to(0., 0.);
-    cr.set_source_rgb(0.3, 0.3, 0.3);
+    cr.set_source_rgb(0.5, 0.5, 0.5);
     cr.set_line_width((f64::from(PANEL_BORDER) / 2. * scale).round() * 2.);
     cr.stroke()?;
 
