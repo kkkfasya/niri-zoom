@@ -93,7 +93,7 @@ struct Thumbnail {
     open_animation: Option<Animation>,
     move_animation: Option<MoveAnimation>,
     title_texture: RefCell<TitleTexture>,
-    background_buffer: RefCell<SolidColorBuffer>,
+    background: RefCell<FocusRing>,
     border: RefCell<FocusRing>,
 }
 
@@ -101,9 +101,14 @@ impl Thumbnail {
     fn from_mapped(mapped: &Mapped, clock: Clock, config: niri_config::MruPreviews) -> Self {
         let app_id = with_toplevel_role(mapped.toplevel(), |role| role.app_id.clone());
 
+        let background = FocusRing::new(niri_config::FocusRing {
+            off: false,
+            width: 0.,
+            active_gradient: None,
+            ..Default::default()
+        });
         let border = FocusRing::new(niri_config::FocusRing {
             off: false,
-            active_color: Color::new_unpremul(1., 1., 1., 1.),
             active_gradient: None,
             ..Default::default()
         });
@@ -120,7 +125,7 @@ impl Thumbnail {
             open_animation: None,
             move_animation: None,
             title_texture: Default::default(),
-            background_buffer: RefCell::new(SolidColorBuffer::new((0., 0.), [1., 1., 1., 1.])),
+            background: RefCell::new(background),
             border: RefCell::new(border),
         }
     }
@@ -378,14 +383,25 @@ impl Thumbnail {
                 color *= 0.3;
             }
 
-            let mut buffer = self.background_buffer.borrow_mut();
-            buffer.resize(size);
-            buffer.set_color(color);
-
             let loc = preview_geo.loc - padding;
-            let elem =
-                SolidColorRenderElement::from_buffer(&buffer, loc, 0.5 * alpha, Kind::Unspecified);
-            let elem = WindowMruUiRenderElement::SolidColor(elem);
+
+            let mut background = self.background.borrow_mut();
+            let mut config = *background.config();
+            config.active_color = color;
+            background.update_config(config);
+            background.update_render_elements(
+                size,
+                true,
+                false,
+                false,
+                Rectangle::default(),
+                CornerRadius::default(),
+                scale,
+                alpha * 0.5,
+            );
+            let bg_elems = background
+                .render(renderer, loc)
+                .map(WindowMruUiRenderElement::FocusRing);
 
             let mut border = self.border.borrow_mut();
             let mut config = *border.config();
@@ -404,10 +420,11 @@ impl Thumbnail {
                 alpha,
             );
 
-            let elems = border
+            let border_elems = border
                 .render(renderer, loc)
                 .map(WindowMruUiRenderElement::FocusRing);
-            elems.chain([elem])
+
+            bg_elems.chain(border_elems)
         });
         let background_elems = background_elems.into_iter().flatten();
 
