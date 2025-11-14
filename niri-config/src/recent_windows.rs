@@ -4,7 +4,7 @@ use knuffel::errors::DecodeError;
 use smithay::input::keyboard::Keysym;
 
 use crate::utils::{expect_only_children, MergeWith};
-use crate::{Action, Bind, Key, Modifiers, Trigger};
+use crate::{Action, Bind, Color, FloatOrInt, Key, Modifiers, Trigger};
 
 /// Delay before the window focus is considered to be locked-in for Window
 /// MRU ordering. For now the delay is not configurable.
@@ -14,6 +14,7 @@ pub const DEFAULT_MRU_COMMIT_MS: u64 = 750;
 pub struct RecentWindows {
     pub on: bool,
     pub open_delay_ms: u16,
+    pub highlight: MruHighlight,
     pub binds: Vec<Bind>,
 }
 
@@ -22,6 +23,7 @@ impl Default for RecentWindows {
         RecentWindows {
             on: true,
             open_delay_ms: 150,
+            highlight: MruHighlight::default(),
             binds: default_binds(),
         }
     }
@@ -36,6 +38,8 @@ pub struct RecentWindowsPart {
     #[knuffel(child, unwrap(argument))]
     pub open_delay_ms: Option<u16>,
     #[knuffel(child)]
+    pub highlight: Option<MruHighlightPart>,
+    #[knuffel(child)]
     pub binds: Option<MruBinds>,
 }
 
@@ -47,6 +51,7 @@ impl MergeWith<RecentWindowsPart> for RecentWindows {
         }
 
         merge_clone!((self, part), open_delay_ms);
+        merge!((self, part), highlight);
 
         if let Some(part) = &part.binds {
             // Remove existing binds matching any new bind.
@@ -55,6 +60,40 @@ impl MergeWith<RecentWindowsPart> for RecentWindows {
             // Add all new binds.
             self.binds.extend(part.0.iter().cloned().map(Bind::from));
         }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct MruHighlight {
+    pub active_color: Color,
+    pub urgent_color: Color,
+    pub padding: f64,
+}
+
+impl Default for MruHighlight {
+    fn default() -> Self {
+        Self {
+            active_color: Color::new_unpremul(0.6, 0.6, 0.6, 1.),
+            urgent_color: Color::new_unpremul(1., 0.6, 0.6, 1.),
+            padding: 30.,
+        }
+    }
+}
+
+#[derive(knuffel::Decode, Debug, Default, PartialEq)]
+pub struct MruHighlightPart {
+    #[knuffel(child)]
+    pub active_color: Option<Color>,
+    #[knuffel(child)]
+    pub urgent_color: Option<Color>,
+    #[knuffel(child, unwrap(argument))]
+    pub padding: Option<FloatOrInt<0, 65535>>,
+}
+
+impl MergeWith<MruHighlightPart> for MruHighlight {
+    fn merge_with(&mut self, part: &MruHighlightPart) {
+        merge_clone!((self, part), active_color, urgent_color);
+        merge!((self, part), padding);
     }
 }
 

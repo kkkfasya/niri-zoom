@@ -877,6 +877,11 @@ mod tests {
             recent-windows {
                 off
 
+                highlight {
+                    padding 15
+                    active-color "#00ff00"
+                }
+
                 binds {
                     Alt+Tab { next-window; }
                     Alt+grave { next-window filter="app-id"; }
@@ -2169,6 +2174,21 @@ mod tests {
             recent_windows: RecentWindows {
                 on: false,
                 open_delay_ms: 150,
+                highlight: MruHighlight {
+                    active_color: Color {
+                        r: 0.0,
+                        g: 1.0,
+                        b: 0.0,
+                        a: 1.0,
+                    },
+                    urgent_color: Color {
+                        r: 1.0,
+                        g: 0.6,
+                        b: 0.6,
+                        a: 1.0,
+                    },
+                    padding: 15.0,
+                },
                 binds: [
                     Bind {
                         key: Key {

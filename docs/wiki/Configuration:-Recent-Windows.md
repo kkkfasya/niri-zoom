@@ -9,6 +9,12 @@ recent-windows {
     // off
     open-delay-ms 150
 
+    highlight {
+        active-color "#999999ff"
+        urgent-color "#ff9999ff"
+        padding 30
+    }
+
     binds {
         Alt+Tab         { next-window; }
         Alt+Shift+Tab   { previous-window; }

@@ -60,9 +60,6 @@ const PREVIEW_MAX_SCALE: f64 = 0.5;
 /// Windows up to this size don't get scaled further down.
 const PREVIEW_MIN_SIZE: f64 = 16.;
 
-/// Padding from window preview to the border.
-const PADDING: f64 = 30.;
-
 /// Border width on the selected window preview.
 const BORDER: f64 = 2.;
 
@@ -212,6 +209,7 @@ impl Thumbnail {
     fn render<R: NiriRenderer>(
         &self,
         renderer: &mut R,
+        config: &niri_config::RecentWindows,
         mapped: &Mapped,
         preview_geo: Rectangle<f64, Logical>,
         scale: f64,
@@ -223,7 +221,7 @@ impl Thumbnail {
         let _span = tracy_client::span!("Thumbnail::render");
 
         let round = move |logical: f64| round_logical_in_physical(scale, logical);
-        let padding = round(PADDING);
+        let padding = round(config.highlight.padding);
         let title_gap = round(TITLE_GAP);
 
         let s = Scale::from(scale);
@@ -379,9 +377,9 @@ impl Thumbnail {
             }
 
             let mut color = if is_urgent {
-                Color::new_unpremul(1., 0.6, 0.6, 1.)
+                config.highlight.urgent_color
             } else {
-                Color::new_unpremul(0.6, 0.6, 0.6, 1.)
+                config.highlight.active_color
             };
             if !is_active {
                 color *= 0.3;
@@ -1334,8 +1332,9 @@ impl Inner {
         let scale = self.output.current_scale().fractional_scale();
         let round = move |logical: f64| round_logical_in_physical(scale, logical);
 
+        let padding = self.config.borrow().recent_windows.highlight.padding;
         let gap = round(GAP);
-        let padding = (round(PADDING) + round(BORDER)) * 2.;
+        let padding = (round(padding) + round(BORDER)) * 2.;
 
         let mut x = 0.;
         self.wmru.thumbnails().map(move |thumbnail| {
@@ -1446,6 +1445,9 @@ impl Inner {
         let bob_y = baba_is_float_offset(self.clock.now(), output_size.h);
         let bob_y = round_logical_in_physical(scale, bob_y);
 
+        let config = self.config.borrow();
+        let config = &config.recent_windows;
+
         for (thumbnail, geo) in self.thumbnails_in_view_render() {
             let id = thumbnail.id;
             let Some((_, mapped)) = niri.layout.windows().find(|(_, m)| m.id() == id) else {
@@ -1455,7 +1457,7 @@ impl Inner {
 
             let is_active = thumbnail.id == current_id;
             let elems = thumbnail.render(
-                renderer, mapped, geo, scale, is_active, bob_y, alpha, target,
+                renderer, config, mapped, geo, scale, is_active, bob_y, alpha, target,
             );
             rv.extend(elems);
         }
@@ -1466,7 +1468,8 @@ impl Inner {
     fn thumbnail_under(&self, pos: Point<f64, Logical>) -> Option<MappedId> {
         let scale = self.output.current_scale().fractional_scale();
         let round = move |logical: f64| round_logical_in_physical(scale, logical);
-        let padding = round(PADDING) + round(BORDER);
+        let padding = self.config.borrow().recent_windows.highlight.padding;
+        let padding = round(padding) + round(BORDER);
         let padding = Point::new(padding, padding);
 
         for (thumbnail, mut geo) in self.thumbnails_in_view_static() {
