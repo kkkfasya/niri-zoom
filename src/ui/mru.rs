@@ -91,6 +91,11 @@ const BACKDROP_COLOR: Color32F = Color32F::new(0., 0., 0., 0.8);
 /// Font used to render the window titles.
 const FONT: &str = "sans 14px";
 
+/// Scopes in the order they are cycled through.
+///
+/// Count must match one defined in `generate_scope_panels()`.
+static SCOPE_CYCLE: [MruScope; 3] = [MruScope::All, MruScope::Workspace, MruScope::Output];
+
 #[derive(Debug)]
 struct Thumbnail {
     id: MappedId,
@@ -745,29 +750,6 @@ impl ViewPos {
     }
 }
 
-/// Types for which there is a finite set of values that can be cycled through.
-pub trait MruCycle {
-    fn cycle(&self, direction: MruDirection) -> Self;
-}
-
-/// Reference for how MruScopes an be cycled through, the list must contain MruScope::All
-static SCOPE_CYCLE: &[MruScope] = &[MruScope::All, MruScope::Workspace, MruScope::Output];
-
-impl MruCycle for MruScope {
-    fn cycle(&self, direction: MruDirection) -> Self {
-        *match direction {
-            MruDirection::Forward => SCOPE_CYCLE.iter().cycle().skip_while(|s| *s != self).nth(1),
-            MruDirection::Backward => SCOPE_CYCLE
-                .iter()
-                .rev()
-                .cycle()
-                .skip_while(|s| *s != self)
-                .nth(1),
-        }
-        .unwrap()
-    }
-}
-
 pub enum MruCloseRequest {
     Cancelled,
     Current,
@@ -892,6 +874,21 @@ impl WindowMruUi {
                 MruDirection::Backward => inner.wmru.backward(),
             }
         }
+    }
+
+    pub fn cycle_scope(&mut self) {
+        let WindowMruUiState::Open(inner) = &mut self.state else {
+            return;
+        };
+
+        let scope = inner.wmru.scope;
+        let scope = SCOPE_CYCLE
+            .into_iter()
+            .cycle()
+            .skip_while(|s| *s != scope)
+            .nth(1)
+            .unwrap();
+        self.advance(None, Some(scope), None);
     }
 
     pub fn pointer_motion(&mut self, pos_within_output: Point<f64, Logical>) {
@@ -1559,7 +1556,7 @@ fn generate_scope_panels(
 
         for scope in SCOPE_CYCLE {
             buf.push_str("  ");
-            if *scope as usize != idx {
+            if scope as usize != idx {
                 buf.push_str(span_unselected);
             }
             let text = match scope {
@@ -1568,7 +1565,7 @@ fn generate_scope_panels(
                 MruScope::Workspace => format!("{span_shortcut}W{span_end}orkspace"),
             };
             buf.push_str(&text);
-            if *scope as usize != idx {
+            if scope as usize != idx {
                 buf.push_str(span_end);
             }
         }
@@ -1671,7 +1668,7 @@ fn make_preset_opened_binds() -> Vec<Bind> {
     push(Keysym::a, Action::MruSetScope(MruScope::All));
     push(Keysym::o, Action::MruSetScope(MruScope::Output));
     push(Keysym::w, Action::MruSetScope(MruScope::Workspace));
-    push(Keysym::s, Action::MruCycleScope(MruDirection::Forward));
+    push(Keysym::s, Action::MruCycleScope);
 
     // Leave these in since they are the most expected and generally uncontroversial keys, so that
     // they work even if these actions are absent from the normal binds.

@@ -384,7 +384,7 @@ pub enum Action {
     #[knuffel(skip)]
     MruSetScope(MruScope),
     #[knuffel(skip)]
-    MruCycleScope(MruDirection),
+    MruCycleScope,
 }
 
 impl From<niri_ipc::Action> for Action {

@@ -44,7 +44,7 @@ use self::spatial_movement_grab::SpatialMovementGrab;
 use crate::layout::scrolling::ScrollDirection;
 use crate::layout::{ActivateWindow, LayoutElement as _, Options};
 use crate::niri::{CastTarget, PointerVisibility, State};
-use crate::ui::mru::{MruCloseRequest, MruCycle, WindowMru};
+use crate::ui::mru::{MruCloseRequest, WindowMru};
 use crate::ui::screenshot_ui::ScreenshotUi;
 use crate::utils::spawning::{spawn, spawn_sh};
 use crate::utils::{center, get_monotonic_time, ResizeEdge};
@@ -2226,8 +2226,7 @@ impl State {
                 }
             }
             Action::MruConfirm => {
-                if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
-                {
+                if self.niri.window_mru_ui.is_open() {
                     if let Some(window) = { self.niri.close_mru_ui(MruCloseRequest::Current) } {
                         // Transfer focus to the selected window id.
                         self.focus_window(&window);
@@ -2237,8 +2236,7 @@ impl State {
                 }
             }
             Action::MruCancel => {
-                if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
-                {
+                if self.niri.window_mru_ui.is_open() {
                     self.niri.window_mru_ui.close(MruCloseRequest::Cancelled);
                     // FIXME: granular
                     self.niri.queue_redraw_all();
@@ -2279,8 +2277,7 @@ impl State {
                 }
             }
             Action::MruCloseCurrentWindow => {
-                if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
-                {
+                if self.niri.window_mru_ui.is_open() {
                     if let Some(id) = self.niri.window_mru_ui.current_window_id() {
                         if let Some(w) = self.niri.find_window_by_id(id) {
                             if let Some(tl) = w.toplevel() {
@@ -2288,39 +2285,32 @@ impl State {
                             }
                         }
                     }
-                    // FIXME: granular
-                    self.niri.queue_redraw_all();
                 }
             }
             Action::MruFirst => {
-                if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
-                {
+                if self.niri.window_mru_ui.is_open() {
                     self.niri.window_mru_ui.first();
                     // FIXME: granular
                     self.niri.queue_redraw_all();
                 }
             }
             Action::MruLast => {
-                if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
-                {
+                if self.niri.window_mru_ui.is_open() {
                     self.niri.window_mru_ui.last();
                     // FIXME: granular
                     self.niri.queue_redraw_all();
                 }
             }
             Action::MruSetScope(scope) => {
-                if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
-                {
+                if self.niri.window_mru_ui.is_open() {
                     self.niri.window_mru_ui.advance(None, Some(scope), None);
                     // FIXME: granular
                     self.niri.queue_redraw_all();
                 }
             }
-            Action::MruCycleScope(direction) => {
-                if self.niri.config.borrow().recent_windows.on && self.niri.window_mru_ui.is_open()
-                {
-                    let scope = self.niri.window_mru_ui.scope().cycle(direction);
-                    self.niri.window_mru_ui.advance(None, Some(scope), None);
+            Action::MruCycleScope => {
+                if self.niri.window_mru_ui.is_open() {
+                    self.niri.window_mru_ui.cycle_scope();
                     // FIXME: granular
                     self.niri.queue_redraw_all();
                 }
