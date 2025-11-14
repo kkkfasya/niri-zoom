@@ -6276,6 +6276,10 @@ impl Niri {
             return;
         }
 
+        if self.window_mru_ui.is_open() {
+            return;
+        }
+
         // Recompute the current pointer focus because we don't update it during animations.
         let current_focus = self.contents_under(pointer.current_location());
 
