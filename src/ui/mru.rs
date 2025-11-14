@@ -393,7 +393,10 @@ pub struct WindowMru {
     /// Id of the currently selected window.
     current_id: Option<MappedId>,
 
+    /// Current scope.
     scope: MruScope,
+
+    /// Current filter.
     app_id_filter: Option<String>,
 }
 
@@ -648,7 +651,7 @@ pub enum WindowMruUiState {
     },
 }
 
-/// Opaque containing MRU UI state
+/// State of an opened MRU UI.
 pub struct Inner {
     /// List of Window Ids to display in the MRU UI.
     wmru: WindowMru,
@@ -659,7 +662,7 @@ pub struct Inner {
     // If true, don't automatically move the current thumbnail in-view. Set on pointer motion.
     freeze_view: bool,
 
-    /// Animation clock
+    /// Animation clock.
     clock: Clock,
 
     /// Time when the UI should appear.
@@ -672,7 +675,7 @@ pub struct Inner {
     /// Configurable properties of the layout.
     options: Rc<Options>,
 
-    /// Output the UI was opened on
+    /// Output the UI was opened on.
     output: Output,
 
     /// Scope panel textures for each variant of Scope
@@ -689,7 +692,6 @@ pub enum ViewPos {
     Animation(Animation),
 }
 
-// Taken from Tile.rs,
 #[derive(Debug)]
 struct MoveAnimation {
     anim: Animation,
@@ -907,7 +909,7 @@ impl WindowMruUi {
     }
 
     pub fn first(&mut self) {
-        let WindowMruUiState::Open(ref mut inner) = self.state else {
+        let WindowMruUiState::Open(inner) = &mut self.state else {
             return;
         };
         inner.freeze_view = false;
@@ -915,7 +917,7 @@ impl WindowMruUi {
     }
 
     pub fn last(&mut self) {
-        let WindowMruUiState::Open(ref mut inner) = self.state else {
+        let WindowMruUiState::Open(inner) = &mut self.state else {
             return;
         };
         inner.freeze_view = false;
@@ -1045,8 +1047,8 @@ impl WindowMruUi {
     }
 
     pub fn output(&self) -> Option<&Output> {
-        match self.state {
-            WindowMruUiState::Open(ref inner) => Some(&inner.output),
+        match &self.state {
+            WindowMruUiState::Open(inner) => Some(&inner.output),
             _ => None,
         }
     }
@@ -1291,7 +1293,6 @@ impl Inner {
         true
     }
 
-    /// Generate a response to an MruCloseRequest
     fn build_close_response(&self, close_request: MruCloseRequest) -> Option<MappedId> {
         let Inner { wmru, .. } = self;
 
@@ -1376,6 +1377,8 @@ impl Inner {
         output: &Output,
         target: RenderTarget,
     ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> {
+        let _span = tracy_client::span!("mru::Inner::render");
+
         let mut rv = Vec::new();
 
         let output_size = output_size(output);
@@ -1482,7 +1485,7 @@ fn generate_title_texture(
     title: &str,
     scale: f64,
 ) -> anyhow::Result<MruTexture> {
-    let _span = tracy_client::span!("window_mru_ui::generate_title_texture");
+    let _span = tracy_client::span!("mru::generate_title_texture");
 
     let mut font = FontDescription::from_string(FONT);
     font.set_absolute_size(to_physical_precise_round(scale, font.size()));
