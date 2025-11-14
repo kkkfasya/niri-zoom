@@ -371,7 +371,7 @@ impl Thumbnail {
             if let Some(title_size) = title_size {
                 size.h += title_gap + title_size.h;
                 // Subtract half the padding so it looks more balanced visually.
-                size.h -= padding.y / 2.;
+                size.h -= round(padding.y / 2.);
             }
 
             let mut color = if is_urgent {
