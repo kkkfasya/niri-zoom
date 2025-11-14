@@ -1435,10 +1435,7 @@ impl Inner {
             let padding = round_logical_in_physical(scale, f64::from(PANEL_PADDING));
 
             let size = texture.logical_size();
-            let location = Point::new(
-                (output_size.w - size.w) / 2.,
-                output_size.h - size.h - padding * 2.,
-            );
+            let location = Point::new((output_size.w - size.w) / 2., padding * 2.);
             let elem = PrimaryGpuTextureRenderElement(TextureRenderElement::from_texture_buffer(
                 texture.clone(),
                 location,
