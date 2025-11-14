@@ -1236,7 +1236,11 @@ impl Inner {
         if !removing_last_visible {
             let output_size = output_size(&self.output);
             let scale = self.output.current_scale().fractional_scale();
-            let gap = round_logical_in_physical(scale, GAP);
+            let round = move |logical: f64| round_logical_in_physical(scale, logical);
+
+            let padding = self.config.borrow().recent_windows.highlight.padding;
+            let padding = round(padding) + round(BORDER);
+            let gap = padding + round(GAP) + padding;
 
             let prev_size = self.wmru.thumbnails[idx].preview_size(output_size, scale);
             let delta = prev_size.w + gap;
@@ -1300,7 +1304,10 @@ impl Inner {
         let output_size = output_size(&self.output);
         let scale = self.output.current_scale().fractional_scale();
         let round = move |logical: f64| round_logical_in_physical(scale, logical);
-        let gap = round(GAP);
+
+        let padding = self.config.borrow().recent_windows.highlight.padding;
+        let padding = round(padding) + round(BORDER);
+        let gap = padding + round(GAP) + padding;
 
         let config = self.config.borrow().animations.window_movement.0;
 
@@ -1345,8 +1352,8 @@ impl Inner {
         let round = move |logical: f64| round_logical_in_physical(scale, logical);
 
         let padding = self.config.borrow().recent_windows.highlight.padding;
-        let gap = round(GAP);
-        let padding = (round(padding) + round(BORDER)) * 2.;
+        let padding = round(padding) + round(BORDER);
+        let gap = padding + round(GAP) + padding;
 
         let mut x = 0.;
         self.wmru.thumbnails().map(move |thumbnail| {
@@ -1354,7 +1361,7 @@ impl Inner {
             let y = round((output_size.h - size.h) / 2.);
 
             let loc = Point::new(x, y);
-            x += size.w + padding + gap;
+            x += size.w + gap;
 
             let geo = Rectangle::new(loc, size);
             (thumbnail, geo)
