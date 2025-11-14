@@ -1016,7 +1016,7 @@ impl WindowMruUi {
         let alpha = progress.clamp(0., 1.) as f32;
 
         if *output == inner.output {
-            rv.extend(inner.render(niri, renderer, alpha, output, target));
+            rv.extend(inner.render(niri, renderer, alpha, target));
         }
 
         // Put a backdrop above the current desktop view to contrast the thumbnails.
@@ -1402,15 +1402,14 @@ impl Inner {
         niri: &Niri,
         renderer: &mut R,
         alpha: f32,
-        output: &Output,
         target: RenderTarget,
     ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> {
         let _span = tracy_client::span!("mru::Inner::render");
 
         let mut rv = Vec::new();
 
-        let output_size = output_size(output);
-        let scale = output.current_scale().fractional_scale();
+        let output_size = output_size(&self.output);
+        let scale = self.output.current_scale().fractional_scale();
 
         if let Some(texture) =
             self.scope_panel
