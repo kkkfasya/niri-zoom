@@ -717,6 +717,9 @@ pub struct Inner {
 
     /// Scope panel textures.
     scope_panel: RefCell<ScopePanel>,
+
+    /// Backdrop buffers for each output.
+    backdrop_buffers: RefCell<HashMap<Output, SolidColorBuffer>>,
 }
 
 #[derive(Debug)]
@@ -847,6 +850,7 @@ impl WindowMruUi {
             clock,
             output,
             scope_panel: Default::default(),
+            backdrop_buffers: Default::default(),
         };
         inner.view_pos = ViewPos::Static(inner.compute_view_pos());
 
@@ -999,7 +1003,6 @@ impl WindowMruUi {
         target: RenderTarget,
     ) -> Vec<WindowMruUiRenderElement<R>> {
         let mut rv = Vec::new();
-        let output_size = output_size(output);
 
         let (inner, progress) = match &self.state {
             WindowMruUiState::Closed { .. } => return rv,
@@ -1020,18 +1023,18 @@ impl WindowMruUi {
         }
 
         // Put a backdrop above the current desktop view to contrast the thumbnails.
-        // TODO: store buffers to avoid constant damage.
-        let buffer = SolidColorBuffer::new(output_size, BACKDROP_COLOR);
+        let mut buffers = inner.backdrop_buffers.borrow_mut();
+        let buffer = buffers.entry(output.clone()).or_default();
+        buffer.resize(output_size(output));
+        buffer.set_color(BACKDROP_COLOR);
 
-        rv.push(
-            SolidColorRenderElement::from_buffer(
-                &buffer,
-                Point::default(),
-                alpha,
-                Kind::Unspecified,
-            )
-            .into(),
+        let elem = SolidColorRenderElement::from_buffer(
+            buffer,
+            Point::new(0., 0.),
+            alpha,
+            Kind::Unspecified,
         );
+        rv.push(WindowMruUiRenderElement::SolidColor(elem));
 
         rv
     }
