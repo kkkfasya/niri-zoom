@@ -1,15 +1,15 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::mem;
 use std::rc::Rc;
 use std::time::Duration;
-use std::{iter, mem};
 
 use anyhow::ensure;
 use niri_config::{
     Action, Bind, Color, Config, CornerRadius, Key, Modifiers, MruDirection, MruFilter, MruScope,
     Trigger,
 };
-use pango::{Alignment, FontDescription};
+use pango::FontDescription;
 use pangocairo::cairo::{self, ImageSurface};
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::utils::{
@@ -80,7 +80,7 @@ const GAP: f64 = 16.;
 const STRUT: f64 = 192.;
 
 /// Padding in the scope indication panel.
-const PANEL_PADDING: i32 = 8;
+const PANEL_PADDING: i32 = 12;
 
 /// Border size of the scope indication panel.
 const PANEL_BORDER: i32 = 4;
@@ -678,10 +678,8 @@ pub struct Inner {
     /// Output the UI was opened on.
     output: Output,
 
-    /// Scope panel textures for each variant of Scope
-    // The array size could be set using std::mem::variant_count, but it
-    // is still unstable. For now it is just hard coded.
-    scope_panel: RefCell<Option<Vec<MruTexture>>>,
+    /// Scope panel textures.
+    scope_panel: RefCell<ScopePanel>,
 }
 
 #[derive(Debug)]
@@ -833,7 +831,7 @@ impl WindowMruUi {
             open_at: clock.now_unadjusted() + OPEN_DELAY,
             clock,
             output,
-            scope_panel: RefCell::new(None),
+            scope_panel: Default::default(),
         };
         inner.view_pos = ViewPos::Static(inner.compute_view_pos());
 
@@ -1384,23 +1382,18 @@ impl Inner {
         let output_size = output_size(output);
         let scale = output.current_scale().fractional_scale();
 
-        // render the scope indicator
-        if self.scope_panel.borrow().is_none() {
-            if let Ok(panels) = make_scope_panels(renderer.as_gles_renderer(), scale) {
-                let _ = self.scope_panel.borrow_mut().insert(panels);
-            }
-        }
-        if let Some(texture) = self
-            .scope_panel
-            .borrow()
-            .as_ref()
-            .and_then(|p| p.get(self.wmru.scope as usize))
+        if let Some(texture) =
+            self.scope_panel
+                .borrow_mut()
+                .get(renderer.as_gles_renderer(), scale, self.wmru.scope)
         {
-            let texture_sz = texture.logical_size();
-            let location = Point::<f64, Logical>::from((
-                (output_size.w - texture_sz.w) / 2.,
-                GAP + texture_sz.h / 2.,
-            ));
+            let padding = round_logical_in_physical(scale, f64::from(PANEL_PADDING));
+
+            let size = texture.logical_size();
+            let location = Point::new(
+                (output_size.w - size.w) / 2.,
+                output_size.h - size.h - padding * 2.,
+            );
             let elem = PrimaryGpuTextureRenderElement(TextureRenderElement::from_texture_buffer(
                 texture.clone(),
                 location,
@@ -1526,59 +1519,89 @@ fn generate_title_texture(
     Ok(buffer)
 }
 
-fn make_scope_panels(renderer: &mut GlesRenderer, scale: f64) -> anyhow::Result<Vec<MruTexture>> {
-    fn make_panel_text(idx: usize) -> String {
-        let span_unselected = "<span fgcolor='#555555'>";
-        let span_end = "</span>";
-        // Using a hair-space or thin-space doesn't seem to make a difference
-        // so for now don't add a space around shortcut keys.
-        // let span_shortcut = "<span face='mono' bgcolor='#2C2C2C'>\u{200a}";
-        // let span_shortcut_end = format!("\u{200a}{span_end}");
-        let span_shortcut = "<span face='mono' bgcolor='#2C2C2C' letter_spacing='5000'>";
-        let span_shortcut_end = span_end;
-        iter::once(format!(
-            " {span_unselected}{span_shortcut}S{span_shortcut_end}cope:{span_end}"
-        ))
-        .chain(SCOPE_CYCLE.iter().map(|s| {
-            let mut t = match s {
-                MruScope::All => format!("{span_shortcut}A{span_shortcut_end}ll"),
-                MruScope::Output => format!("{span_shortcut}O{span_shortcut_end}utput"),
-                MruScope::Workspace => format!("{span_shortcut}W{span_shortcut_end}orkspace"),
-            };
-            if *s as usize != idx {
-                t = format!("{span_unselected}{t}{span_end}")
-            }
-            t
-        }))
-        .collect::<Vec<_>>()
-        .join("  ")
-    }
-
-    (0..SCOPE_CYCLE.len())
-        .map(make_panel_text)
-        .map(|text| make_panel(renderer, scale, &text))
-        .collect()
+/// Cached scope panel textures.
+#[derive(Debug, Default)]
+struct ScopePanel {
+    scale: f64,
+    textures: Option<Option<[MruTexture; 3]>>,
 }
 
-// This is a copy of screenshot_ui's render_panel
-fn make_panel(renderer: &mut GlesRenderer, scale: f64, text: &str) -> anyhow::Result<MruTexture> {
-    let font = FontDescription::from_string(FONT);
-    let padding: i32 = to_physical_precise_round(scale, PANEL_PADDING);
-    let border_width = (f64::from(PANEL_BORDER) / 2. * scale).round() * 2.;
-    let half_border_width = (border_width / 2.) as i32;
-    let spacing = to_physical_precise_round::<i32>(scale, 2) * 1024;
+impl ScopePanel {
+    fn get(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        scale: f64,
+        scope: MruScope,
+    ) -> Option<MruTexture> {
+        if self.scale != scale {
+            self.textures = None;
+            self.scale = scale;
+        }
 
-    // Render `scope_text` to a dummy surface to determine its size
+        self.textures
+            .get_or_insert_with(|| generate_scope_panels(renderer, scale).ok())
+            .as_ref()
+            .map(|x| x[scope as usize].clone())
+    }
+}
+
+fn generate_scope_panels(
+    renderer: &mut GlesRenderer,
+    scale: f64,
+) -> anyhow::Result<[MruTexture; 3]> {
+    fn make_panel_text(idx: usize) -> String {
+        let span_unselected = "<span fgcolor='#555555'>";
+        let span_shortcut = "<span face='mono' bgcolor='#2C2C2C' letter_spacing='5000'>";
+        let span_end = "</span>";
+
+        // Starts with a zero-width space to make letter_spacing work on the left.
+        let mut buf = format!("\u{200B}{span_unselected}{span_shortcut}S{span_end}cope:{span_end}");
+
+        for scope in SCOPE_CYCLE {
+            buf.push_str("  ");
+            if *scope as usize != idx {
+                buf.push_str(span_unselected);
+            }
+            let text = match scope {
+                MruScope::All => format!("{span_shortcut}A{span_end}ll"),
+                MruScope::Output => format!("{span_shortcut}O{span_end}utput"),
+                MruScope::Workspace => format!("{span_shortcut}W{span_end}orkspace"),
+            };
+            buf.push_str(&text);
+            if *scope as usize != idx {
+                buf.push_str(span_end);
+            }
+        }
+
+        buf
+    }
+
+    // Can't wait for array::try_map()
+    Ok([
+        render_panel(renderer, scale, &make_panel_text(0))?,
+        render_panel(renderer, scale, &make_panel_text(1))?,
+        render_panel(renderer, scale, &make_panel_text(2))?,
+    ])
+}
+
+fn render_panel(renderer: &mut GlesRenderer, scale: f64, text: &str) -> anyhow::Result<MruTexture> {
+    let _span = tracy_client::span!("mru::render_panel");
+
+    let mut font = FontDescription::from_string(FONT);
+    font.set_absolute_size(to_physical_precise_round(scale, font.size()));
+
+    let padding: i32 = to_physical_precise_round(scale, PANEL_PADDING);
+    // Keep the border width even to avoid blurry edges.
+    // Render to a dummy surface to determine the size.
     let surface = ImageSurface::create(cairo::Format::ARgb32, 0, 0)?;
     let cr = cairo::Context::new(&surface)?;
     let layout = pangocairo::functions::create_layout(&cr);
+    layout.context().set_round_glyph_positions(false);
     layout.set_font_description(Some(&font));
     layout.set_markup(text);
-    layout.set_spacing(spacing);
     let (mut width, mut height) = layout.pixel_size();
 
-    // Setup the final surface
-    width += 2 * padding + half_border_width;
+    width += padding * 2;
     height += padding * 2;
 
     let surface = ImageSurface::create(cairo::Format::ARgb32, width, height)?;
@@ -1587,16 +1610,13 @@ fn make_panel(renderer: &mut GlesRenderer, scale: f64, text: &str) -> anyhow::Re
     cr.paint()?;
 
     let padding = f64::from(padding);
-    let half_border_width = f64::from(half_border_width);
 
-    cr.move_to(padding + half_border_width, padding);
+    cr.move_to(padding, padding);
 
     let layout = pangocairo::functions::create_layout(&cr);
     layout.context().set_round_glyph_positions(false);
     layout.set_font_description(Some(&font));
-    layout.set_alignment(Alignment::Left);
     layout.set_markup(text);
-    layout.set_spacing(spacing);
 
     cr.set_source_rgb(1., 1., 1.);
     pangocairo::functions::show_layout(&cr, &layout);
@@ -1607,10 +1627,10 @@ fn make_panel(renderer: &mut GlesRenderer, scale: f64, text: &str) -> anyhow::Re
     cr.line_to(0., height.into());
     cr.line_to(0., 0.);
     cr.set_source_rgb(0.3, 0.3, 0.3);
-    cr.set_line_width(border_width);
+    cr.set_line_width((f64::from(PANEL_BORDER) / 2. * scale).round() * 2.);
     cr.stroke()?;
-    drop(cr);
 
+    drop(cr);
     let data = surface.take_data().unwrap();
     let buffer = TextureBuffer::from_memory(
         renderer,
