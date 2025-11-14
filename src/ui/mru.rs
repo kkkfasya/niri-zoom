@@ -36,7 +36,8 @@ use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderEleme
 use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::render_helpers::RenderTarget;
 use crate::utils::{
-    output_size, round_logical_in_physical, to_physical_precise_round, with_toplevel_role,
+    baba_is_float_offset, output_size, round_logical_in_physical, to_physical_precise_round,
+    with_toplevel_role,
 };
 use crate::window::mapped::MappedId;
 use crate::window::Mapped;
@@ -221,6 +222,7 @@ impl Thumbnail {
         preview_geo: Rectangle<f64, Logical>,
         scale: f64,
         is_active: bool,
+        bob_y: f64,
         alpha: f32,
         target: RenderTarget,
     ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> {
@@ -238,6 +240,13 @@ impl Thumbnail {
             .map_or(1., |a| a.clamped_value() as f32)
             .clamp(0., 1.)
             * alpha;
+
+        let bob_y = if mapped.rules().baba_is_float == Some(true) {
+            bob_y
+        } else {
+            0.
+        };
+        let bob_offset = Point::new(0., bob_y);
 
         // TODO: offscreen
         let elems = mapped
@@ -312,7 +321,7 @@ impl Thumbnail {
             let elem = RescaleRenderElement::from_element(elem, Point::new(0, 0), thumb_scale);
             let elem = RelocateRenderElement::from_element(
                 elem,
-                (preview_geo.loc + offset).to_physical_precise_round(scale),
+                (preview_geo.loc + offset + bob_offset).to_physical_precise_round(scale),
                 Relocate::Relative,
             );
             WindowMruUiRenderElement::Thumbnail(elem)
@@ -1448,6 +1457,9 @@ impl Inner {
             return rv.into_iter();
         };
 
+        let bob_y = baba_is_float_offset(self.clock.now(), output_size.h);
+        let bob_y = round_logical_in_physical(scale, bob_y);
+
         for (thumbnail, geo) in self.thumbnails_in_view_render() {
             let id = thumbnail.id;
             let Some((_, mapped)) = niri.layout.windows().find(|(_, m)| m.id() == id) else {
@@ -1456,7 +1468,9 @@ impl Inner {
             };
 
             let is_active = thumbnail.id == current_id;
-            let elems = thumbnail.render(renderer, mapped, geo, scale, is_active, alpha, target);
+            let elems = thumbnail.render(
+                renderer, mapped, geo, scale, is_active, bob_y, alpha, target,
+            );
             rv.extend(elems);
         }
 
