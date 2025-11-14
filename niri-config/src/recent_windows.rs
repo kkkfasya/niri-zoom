@@ -15,6 +15,7 @@ pub struct RecentWindows {
     pub on: bool,
     pub open_delay_ms: u16,
     pub highlight: MruHighlight,
+    pub preview: MruPreview,
     pub binds: Vec<Bind>,
 }
 
@@ -24,6 +25,7 @@ impl Default for RecentWindows {
             on: true,
             open_delay_ms: 150,
             highlight: MruHighlight::default(),
+            preview: MruPreview::default(),
             binds: default_binds(),
         }
     }
@@ -40,6 +42,8 @@ pub struct RecentWindowsPart {
     #[knuffel(child)]
     pub highlight: Option<MruHighlightPart>,
     #[knuffel(child)]
+    pub preview: Option<MruPreviewPart>,
+    #[knuffel(child)]
     pub binds: Option<MruBinds>,
 }
 
@@ -51,7 +55,7 @@ impl MergeWith<RecentWindowsPart> for RecentWindows {
         }
 
         merge_clone!((self, part), open_delay_ms);
-        merge!((self, part), highlight);
+        merge!((self, part), highlight, preview);
 
         if let Some(part) = &part.binds {
             // Remove existing binds matching any new bind.
@@ -94,6 +98,35 @@ impl MergeWith<MruHighlightPart> for MruHighlight {
     fn merge_with(&mut self, part: &MruHighlightPart) {
         merge_clone!((self, part), active_color, urgent_color);
         merge!((self, part), padding);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MruPreview {
+    pub max_height: f64,
+    pub max_scale: f64,
+}
+
+impl Default for MruPreview {
+    fn default() -> Self {
+        Self {
+            max_height: 480.,
+            max_scale: 0.5,
+        }
+    }
+}
+
+#[derive(knuffel::Decode, Debug, Default, PartialEq)]
+pub struct MruPreviewPart {
+    #[knuffel(child, unwrap(argument))]
+    pub max_height: Option<FloatOrInt<1, 65535>>,
+    #[knuffel(child, unwrap(argument))]
+    pub max_scale: Option<FloatOrInt<0, 1>>,
+}
+
+impl MergeWith<MruPreviewPart> for MruPreview {
+    fn merge_with(&mut self, part: &MruPreviewPart) {
+        merge!((self, part), max_height, max_scale);
     }
 }
 

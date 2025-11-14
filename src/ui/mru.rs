@@ -45,18 +45,6 @@ use crate::window::Mapped;
 #[cfg(test)]
 mod tests;
 
-/// Maximum height a window preview can be, in logical pixels.
-///
-/// The idea is that on bigger monitors it is not necessary to keep scaling up the window previews,
-/// and instead we can fit more on screen.
-const PREVIEW_MAX_HEIGHT: f64 = 480.;
-
-/// Maximum factor the window previews must be scaled by.
-///
-/// This is enforced so that even very small windows appear visually downscaled, to avoid
-/// confusion.
-const PREVIEW_MAX_SCALE: f64 = 0.5;
-
 /// Windows up to this size don't get scaled further down.
 const PREVIEW_MIN_SIZE: f64 = 16.;
 
@@ -101,6 +89,7 @@ struct Thumbnail {
     size: Size<i32, Logical>,
 
     clock: Clock,
+    config: niri_config::MruPreview,
     open_animation: Option<Animation>,
     move_animation: Option<MoveAnimation>,
     title_texture: RefCell<TitleTexture>,
@@ -109,7 +98,7 @@ struct Thumbnail {
 }
 
 impl Thumbnail {
-    fn from_mapped(mapped: &Mapped, clock: Clock) -> Self {
+    fn from_mapped(mapped: &Mapped, clock: Clock, config: niri_config::MruPreview) -> Self {
         let app_id = with_toplevel_role(mapped.toplevel(), |role| role.app_id.clone());
 
         let border = FocusRing::new(niri_config::FocusRing {
@@ -127,6 +116,7 @@ impl Thumbnail {
             app_id,
             size: mapped.size(),
             clock,
+            config,
             open_animation: None,
             move_animation: None,
             title_texture: Default::default(),
@@ -176,7 +166,10 @@ impl Thumbnail {
     }
 
     fn preview_size(&self, output_size: Size<f64, Logical>, scale: f64) -> Size<f64, Logical> {
-        let max_height = f64::min(PREVIEW_MAX_HEIGHT, output_size.h * PREVIEW_MAX_SCALE);
+        let max_height = f64::max(1., self.config.max_height);
+        let max_scale = f64::max(0.001, self.config.max_scale);
+
+        let max_height = f64::min(max_height, output_size.h * max_scale);
         let output_ratio = output_size.w / output_size.h;
         let max_width = max_height * output_ratio;
 
@@ -184,7 +177,7 @@ impl Thumbnail {
         let min_scale = f64::min(1., PREVIEW_MIN_SIZE / f64::max(size.w, size.h));
 
         let thumb_scale = f64::min(max_width / size.w, max_height / size.h);
-        let thumb_scale = f64::min(PREVIEW_MAX_SCALE, thumb_scale);
+        let thumb_scale = f64::min(max_scale, thumb_scale);
         let thumb_scale = f64::max(min_scale, thumb_scale);
         let size = size.to_f64().upscale(thumb_scale);
 
@@ -449,6 +442,7 @@ impl WindowMru {
             };
         };
 
+        let config = niri.config.borrow().recent_windows.preview;
         let mut thumbnails = Vec::new();
         for (mon, ws_idx, ws) in niri.layout.workspaces() {
             let mon = mon.expect("an active output exists so all workspaces have a monitor");
@@ -456,7 +450,7 @@ impl WindowMru {
             let on_current_workspace = on_current_output && mon.active_workspace_idx() == ws_idx;
 
             for mapped in ws.windows() {
-                let mut thumbnail = Thumbnail::from_mapped(mapped, niri.clock.clone());
+                let mut thumbnail = Thumbnail::from_mapped(mapped, niri.clock.clone(), config);
                 thumbnail.on_current_output = on_current_output;
                 thumbnail.on_current_workspace = on_current_workspace;
                 thumbnails.push(thumbnail);
@@ -829,6 +823,15 @@ impl WindowMruUi {
         self.dynamic_opened_binds = make_dynamic_opened_binds(&self.config.borrow());
     }
 
+    pub fn update_config(&mut self) {
+        let inner = match &mut self.state {
+            WindowMruUiState::Open(inner) => inner,
+            WindowMruUiState::Closing { inner, .. } => inner,
+            WindowMruUiState::Closed { .. } => return,
+        };
+        inner.update_config();
+    }
+
     pub fn is_open(&self) -> bool {
         matches!(self.state, WindowMruUiState::Open { .. })
     }
@@ -1115,6 +1118,15 @@ fn compute_view_offset(cur_x: f64, working_width: f64, new_col_x: f64, new_col_w
 }
 
 impl Inner {
+    fn update_config(&mut self) {
+        self.freeze_view = false;
+
+        let config = self.config.borrow().recent_windows.preview;
+        for thumbnail in &mut self.wmru.thumbnails {
+            thumbnail.config = config;
+        }
+    }
+
     fn are_animations_ongoing(&self) -> bool {
         self.clock.now_unadjusted() < self.open_at
             || self.view_pos.are_animations_ongoing()

@@ -12,6 +12,7 @@ fn create_thumbnail() -> Thumbnail {
         app_id: None,
         size: Size::new(100, 100),
         clock: Clock::with_time(Duration::ZERO),
+        config: niri_config::MruPreview::default(),
         open_animation: None,
         move_animation: None,
         title_texture: Default::default(),

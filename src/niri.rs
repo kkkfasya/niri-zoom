@@ -1475,6 +1475,7 @@ impl State {
         let mut layer_rules_changed = false;
         let mut shaders_changed = false;
         let mut cursor_inactivity_timeout_changed = false;
+        let mut recent_windows_changed = false;
         let mut xwls_changed = false;
         let mut old_config = self.niri.config.borrow_mut();
 
@@ -1595,6 +1596,10 @@ impl State {
             output_config_changed = true;
         }
 
+        if config.recent_windows != old_config.recent_windows {
+            recent_windows_changed = true;
+        }
+
         if config.xwayland_satellite != old_config.xwayland_satellite {
             xwls_changed = true;
         }
@@ -1667,6 +1672,10 @@ impl State {
 
         if binds_changed {
             self.niri.window_mru_ui.update_binds();
+        }
+
+        if recent_windows_changed {
+            self.niri.window_mru_ui.update_config();
         }
 
         if xwls_changed {

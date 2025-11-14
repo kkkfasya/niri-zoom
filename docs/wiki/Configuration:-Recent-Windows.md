@@ -15,6 +15,11 @@ recent-windows {
         padding 30
     }
 
+    preview {
+        max-height 480
+        max-scale 0.5
+    }
+
     binds {
         Alt+Tab         { next-window; }
         Alt+Shift+Tab   { previous-window; }
