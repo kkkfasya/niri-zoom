@@ -383,6 +383,8 @@ impl Thumbnail {
                 color *= 0.3;
             }
 
+            let radius = CornerRadius::from(config.highlight.corner_radius as f32);
+
             let loc = preview_geo.loc - padding;
 
             let mut background = self.background.borrow_mut();
@@ -395,7 +397,7 @@ impl Thumbnail {
                 false,
                 false,
                 Rectangle::default(),
-                CornerRadius::default(),
+                radius,
                 scale,
                 alpha * 0.5,
             );
@@ -409,13 +411,14 @@ impl Thumbnail {
             config.width = round(BORDER);
             config.active_color = color;
             border.update_config(config);
+            border.set_thicken_corners(false);
             border.update_render_elements(
                 size,
                 true,
                 true,
                 false,
                 Rectangle::default(),
-                CornerRadius::default(),
+                radius.expanded_by(config.width as f32),
                 scale,
                 alpha,
             );

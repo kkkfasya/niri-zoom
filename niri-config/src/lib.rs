@@ -2192,6 +2192,7 @@ mod tests {
                         a: 1.0,
                     },
                     padding: 15.0,
+                    corner_radius: 0.0,
                 },
                 previews: MruPreviews {
                     max_height: 960.0,

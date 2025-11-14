@@ -13,6 +13,7 @@ recent-windows {
         active-color "#999999ff"
         urgent-color "#ff9999ff"
         padding 30
+        corner-radius 0
     }
 
     previews {

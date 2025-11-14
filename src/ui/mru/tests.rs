@@ -16,7 +16,7 @@ fn create_thumbnail() -> Thumbnail {
         open_animation: None,
         move_animation: None,
         title_texture: Default::default(),
-        background_buffer: Default::default(),
+        background: RefCell::new(FocusRing::new(Default::default())),
         border: RefCell::new(FocusRing::new(Default::default())),
     }
 }
