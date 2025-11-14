@@ -2171,12 +2171,10 @@ impl State {
                 self.set_dynamic_cast_target(CastTarget::Nothing);
             }
             Action::ToggleOverview => {
-                self.niri.close_mru_ui(MruCloseRequest::Cancelled);
                 self.niri.layout.toggle_overview();
                 self.niri.queue_redraw_all();
             }
             Action::OpenOverview => {
-                self.niri.close_mru_ui(MruCloseRequest::Cancelled);
                 if self.niri.layout.open_overview() {
                     self.niri.queue_redraw_all();
                 }
@@ -3502,7 +3500,6 @@ impl State {
                             }) {
                                 drop(workspaces);
                                 self.niri.layout.focus_output(&output);
-                                self.niri.close_mru_ui(MruCloseRequest::Cancelled);
                                 self.niri.layout.toggle_overview_to_workspace(ws_idx);
                                 self.niri.mru_commit();
                             }
@@ -3612,13 +3609,17 @@ impl State {
     }
 
     fn on_gesture_swipe_begin<I: InputBackend>(&mut self, event: I::GestureSwipeBeginEvent) {
+        if self.niri.window_mru_ui.is_open() {
+            // Don't start swipe gestures while in the MRU.
+            return;
+        }
+
         if event.fingers() == 3 {
             self.niri.gesture_swipe_3f_cumulative = Some((0., 0.));
 
             // We handled this event.
             return;
         } else if event.fingers() == 4 {
-            self.niri.close_mru_ui(MruCloseRequest::Cancelled);
             self.niri.layout.overview_gesture_begin();
             self.niri.queue_redraw_all();
 
