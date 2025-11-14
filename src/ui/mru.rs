@@ -89,7 +89,7 @@ struct Thumbnail {
     size: Size<i32, Logical>,
 
     clock: Clock,
-    config: niri_config::MruPreview,
+    config: niri_config::MruPreviews,
     open_animation: Option<Animation>,
     move_animation: Option<MoveAnimation>,
     title_texture: RefCell<TitleTexture>,
@@ -98,7 +98,7 @@ struct Thumbnail {
 }
 
 impl Thumbnail {
-    fn from_mapped(mapped: &Mapped, clock: Clock, config: niri_config::MruPreview) -> Self {
+    fn from_mapped(mapped: &Mapped, clock: Clock, config: niri_config::MruPreviews) -> Self {
         let app_id = with_toplevel_role(mapped.toplevel(), |role| role.app_id.clone());
 
         let border = FocusRing::new(niri_config::FocusRing {
@@ -442,7 +442,7 @@ impl WindowMru {
             };
         };
 
-        let config = niri.config.borrow().recent_windows.preview;
+        let config = niri.config.borrow().recent_windows.previews;
         let mut thumbnails = Vec::new();
         for (mon, ws_idx, ws) in niri.layout.workspaces() {
             let mon = mon.expect("an active output exists so all workspaces have a monitor");
@@ -1121,7 +1121,7 @@ impl Inner {
     fn update_config(&mut self) {
         self.freeze_view = false;
 
-        let config = self.config.borrow().recent_windows.preview;
+        let config = self.config.borrow().recent_windows.previews;
         for thumbnail in &mut self.wmru.thumbnails {
             thumbnail.config = config;
         }

@@ -57,7 +57,7 @@ pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 use crate::recent_windows::RecentWindowsPart;
 pub use crate::recent_windows::{
-    MruDirection, MruFilter, MruPreview, MruScope, RecentWindows, DEFAULT_MRU_COMMIT_MS,
+    MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows, DEFAULT_MRU_COMMIT_MS,
 };
 pub use crate::utils::FloatOrInt;
 use crate::utils::{Flag, MergeWith as _};
@@ -882,7 +882,7 @@ mod tests {
                     active-color "#00ff00"
                 }
 
-                preview {
+                previews {
                     max-height 960
                 }
 
@@ -2193,7 +2193,7 @@ mod tests {
                     },
                     padding: 15.0,
                 },
-                preview: MruPreview {
+                previews: MruPreviews {
                     max_height: 960.0,
                     max_scale: 0.5,
                 },

@@ -15,7 +15,7 @@ recent-windows {
         padding 30
     }
 
-    preview {
+    previews {
         max-height 480
         max-scale 0.5
     }

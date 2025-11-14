@@ -15,7 +15,7 @@ pub struct RecentWindows {
     pub on: bool,
     pub open_delay_ms: u16,
     pub highlight: MruHighlight,
-    pub preview: MruPreview,
+    pub previews: MruPreviews,
     pub binds: Vec<Bind>,
 }
 
@@ -25,7 +25,7 @@ impl Default for RecentWindows {
             on: true,
             open_delay_ms: 150,
             highlight: MruHighlight::default(),
-            preview: MruPreview::default(),
+            previews: MruPreviews::default(),
             binds: default_binds(),
         }
     }
@@ -42,7 +42,7 @@ pub struct RecentWindowsPart {
     #[knuffel(child)]
     pub highlight: Option<MruHighlightPart>,
     #[knuffel(child)]
-    pub preview: Option<MruPreviewPart>,
+    pub previews: Option<MruPreviewsPart>,
     #[knuffel(child)]
     pub binds: Option<MruBinds>,
 }
@@ -55,7 +55,7 @@ impl MergeWith<RecentWindowsPart> for RecentWindows {
         }
 
         merge_clone!((self, part), open_delay_ms);
-        merge!((self, part), highlight, preview);
+        merge!((self, part), highlight, previews);
 
         if let Some(part) = &part.binds {
             // Remove existing binds matching any new bind.
@@ -102,12 +102,12 @@ impl MergeWith<MruHighlightPart> for MruHighlight {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MruPreview {
+pub struct MruPreviews {
     pub max_height: f64,
     pub max_scale: f64,
 }
 
-impl Default for MruPreview {
+impl Default for MruPreviews {
     fn default() -> Self {
         Self {
             max_height: 480.,
@@ -117,15 +117,15 @@ impl Default for MruPreview {
 }
 
 #[derive(knuffel::Decode, Debug, Default, PartialEq)]
-pub struct MruPreviewPart {
+pub struct MruPreviewsPart {
     #[knuffel(child, unwrap(argument))]
     pub max_height: Option<FloatOrInt<1, 65535>>,
     #[knuffel(child, unwrap(argument))]
     pub max_scale: Option<FloatOrInt<0, 1>>,
 }
 
-impl MergeWith<MruPreviewPart> for MruPreview {
-    fn merge_with(&mut self, part: &MruPreviewPart) {
+impl MergeWith<MruPreviewsPart> for MruPreviews {
+    fn merge_with(&mut self, part: &MruPreviewsPart) {
         merge!((self, part), max_height, max_scale);
     }
 }
