@@ -123,7 +123,7 @@ recent-windows {
 The available actions are `next-window` and `previous-window`.
 They can optionally have the following properties:
 
-- `filter="app-id"`: filters the switcher to the windows of the currently selected application.
+- `filter="app-id"`: filters the switcher to the windows of the currently selected application, as determined by the Wayland app ID.
 - `scope="all"`, `scope="output"`, `scope="workspace"`: sets the pre-selected scope when this bind is used to open the recent windows switcher.
 
 ```kdl
