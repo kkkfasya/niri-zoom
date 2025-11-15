@@ -182,7 +182,8 @@ pub enum MruScope {
 pub enum MruFilter {
     /// All windows.
     #[default]
-    None,
+    #[knuffel(skip)]
+    All,
     /// Windows with the same app id as the active window.
     AppId,
 }
@@ -244,7 +245,7 @@ fn default_binds() -> Vec<Bind> {
     };
 
     for base_mod in [Modifiers::ALT, Modifiers::COMPOSITOR] {
-        push(Keysym::Tab, base_mod, MruFilter::None);
+        push(Keysym::Tab, base_mod, MruFilter::All);
         push(Keysym::grave, base_mod, MruFilter::AppId);
     }
 
@@ -362,7 +363,7 @@ where
         // even if their contents are not valid.
         let dummy = Self {
             key,
-            action: MruAction::NextWindow(None, MruFilter::None),
+            action: MruAction::NextWindow(None, MruFilter::All),
             allow_inhibiting: true,
             hotkey_overlay_title: None,
         };

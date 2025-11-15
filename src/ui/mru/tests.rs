@@ -46,7 +46,7 @@ fn arbitrary_scope() -> impl Strategy<Value = MruScope> {
 }
 
 fn arbitrary_filter() -> impl Strategy<Value = MruFilter> {
-    prop_oneof![Just(MruFilter::None), Just(MruFilter::AppId)]
+    prop_oneof![Just(MruFilter::All), Just(MruFilter::AppId)]
 }
 
 fn arbitrary_app_id() -> impl Strategy<Value = Option<String>> {

@@ -2212,7 +2212,7 @@ mod tests {
                             direction: Forward,
                             scope: None,
                             filter: Some(
-                                None,
+                                All,
                             ),
                         },
                         repeat: true,
@@ -2258,7 +2258,7 @@ mod tests {
                                 Output,
                             ),
                             filter: Some(
-                                None,
+                                All,
                             ),
                         },
                         repeat: true,

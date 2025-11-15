@@ -628,7 +628,7 @@ impl WindowMru {
                 .unwrap();
 
             let old = match filter {
-                MruFilter::None => {
+                MruFilter::All => {
                     let old = self.app_id_filter.take();
                     Some(old.expect("verified by early return at the top"))
                 }
@@ -656,7 +656,7 @@ impl WindowMru {
             Some(old)
         } else {
             match filter {
-                MruFilter::None => {
+                MruFilter::All => {
                     let old = self.app_id_filter.take();
                     let old = old.expect("verified by early return at the top");
                     self.current_id = self.first_id();
