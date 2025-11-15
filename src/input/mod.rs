@@ -2244,7 +2244,6 @@ impl State {
                     self.niri.window_mru_ui.advance(direction, filter);
                     self.niri.queue_redraw_mru_output();
                 } else if self.niri.config.borrow().recent_windows.on {
-                    // TODO: don't reopen from scratch from closing state
                     self.niri.mru_commit();
                     let config = self.niri.config.borrow();
                     let scope = scope.unwrap_or(self.niri.window_mru_ui.scope());
