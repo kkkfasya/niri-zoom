@@ -184,8 +184,8 @@ pub struct Mapped {
     /// in response yet.
     uncommitted_maximized: Vec<(Serial, bool)>,
 
-    /// Most recent monotonic time the window had the focus.
-    most_recent_focus: Option<Duration>,
+    /// Most recent monotonic time when the window had the focus.
+    focus_timestamp: Option<Duration>,
 }
 
 niri_render_elements! {
@@ -282,7 +282,7 @@ impl Mapped {
             is_maximized: false,
             is_pending_maximized: false,
             uncommitted_maximized: Vec::new(),
-            most_recent_focus: None,
+            focus_timestamp: None,
         };
 
         rv.is_maximized = rv.sizing_mode().is_maximized();
@@ -520,11 +520,11 @@ impl Mapped {
     }
 
     pub fn get_focus_timestamp(&self) -> Option<Duration> {
-        self.most_recent_focus
+        self.focus_timestamp
     }
 
-    pub fn update_focus_timestamp(&mut self, timestamp: Duration) {
-        self.most_recent_focus.replace(timestamp);
+    pub fn set_focus_timestamp(&mut self, timestamp: Duration) {
+        self.focus_timestamp.replace(timestamp);
     }
 
     pub fn send_frame<T, F>(

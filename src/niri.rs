@@ -1253,20 +1253,15 @@ impl State {
                 if let Some((mapped, _)) = self.niri.layout.find_window_and_output_mut(surface) {
                     mapped.set_is_focused(true);
 
-                    // If `mapped` does not have a most_recent_timestamp,
-                    // then the window is newly created/mapped and
-                    // a timestamp is unconditionally created.
+                    // If `mapped` does not have a focus timestamp, then the window is newly
+                    // created/mapped and a timestamp is unconditionally created.
                     //
-                    // If `mapped` already has a timestamp,
-                    // *and* there is no active window-mru,
-                    // the timestamp will be updated for `mapped`, but only
-                    // after the focus lock-in period has gone by without
-                    // the focus having elsewhere.
+                    // If `mapped` already has a timestamp only update it after the focus lock-in
+                    // period has gone by without the focus having elsewhere.
                     let stamp = get_monotonic_time();
-                    let focus_id = mapped.id();
 
                     if mapped.get_focus_timestamp().is_none() {
-                        mapped.update_focus_timestamp(stamp);
+                        mapped.set_focus_timestamp(stamp);
                     } else {
                         let timer =
                             Timer::from_duration(Duration::from_millis(DEFAULT_MRU_COMMIT_MS));
@@ -1281,7 +1276,7 @@ impl State {
                             .unwrap();
                         if let Some(PendingMruCommit { token, .. }) =
                             self.niri.pending_mru_commit.replace(PendingMruCommit {
-                                id: focus_id,
+                                id: mapped.id(),
                                 token: focus_token,
                                 stamp,
                             })
@@ -6542,7 +6537,7 @@ impl Niri {
                 .flat_map(|ws| ws.windows_mut())
                 .find(|w| w.id() == pending.id)
             {
-                window.update_focus_timestamp(pending.stamp);
+                window.set_focus_timestamp(pending.stamp);
             }
             self.event_loop.remove(pending.token);
         }
