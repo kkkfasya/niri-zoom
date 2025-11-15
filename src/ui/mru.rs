@@ -1433,25 +1433,23 @@ impl Inner {
         })
     }
 
-    fn render<R: NiriRenderer>(
-        &self,
-        niri: &Niri,
-        renderer: &mut R,
+    fn render<'a, R: NiriRenderer>(
+        &'a self,
+        niri: &'a Niri,
+        renderer: &'a mut R,
         alpha: f32,
         target: RenderTarget,
-    ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> {
+    ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> + 'a {
         let _span = tracy_client::span!("mru::Inner::render");
-
-        let mut rv = Vec::new();
 
         let output_size = output_size(&self.output);
         let scale = self.output.current_scale().fractional_scale();
 
-        if let Some(texture) =
+        let panel_texture =
             self.scope_panel
                 .borrow_mut()
-                .get(renderer.as_gles_renderer(), scale, self.wmru.scope)
-        {
+                .get(renderer.as_gles_renderer(), scale, self.wmru.scope);
+        let panel = panel_texture.map(move |texture| {
             let padding = round_logical_in_physical(scale, f64::from(PANEL_PADDING));
 
             let size = texture.logical_size();
@@ -1464,8 +1462,9 @@ impl Inner {
                 None,
                 Kind::Unspecified,
             ));
-            rv.push(elem.into());
-        }
+            WindowMruUiRenderElement::TextureElement(elem)
+        });
+        let panel = panel.into_iter();
 
         // As with tiles, render thumbnails for closing windows on top of
         // others.
@@ -1474,31 +1473,33 @@ impl Inner {
         //     rv.push(elem.into());
         // }
 
-        let Some(current_id) = self.wmru.current_id else {
-            return rv.into_iter();
-        };
+        let current_id = self.wmru.current_id;
 
         let bob_y = baba_is_float_offset(self.clock.now(), output_size.h);
         let bob_y = round_logical_in_physical(scale, bob_y);
 
         let config = self.config.borrow();
-        let config = &config.recent_windows;
 
-        for (thumbnail, geo) in self.thumbnails_in_view_render() {
-            let id = thumbnail.id;
-            let Some((_, mapped)) = niri.layout.windows().find(|(_, m)| m.id() == id) else {
-                error!("window in the MRU must be present in the layout");
-                continue;
-            };
+        let thumbnails = self
+            .thumbnails_in_view_render()
+            .filter_map(move |(thumbnail, geo)| {
+                let id = thumbnail.id;
+                let Some((_, mapped)) = niri.layout.windows().find(|(_, m)| m.id() == id) else {
+                    error!("window in the MRU must be present in the layout");
+                    return None;
+                };
 
-            let is_active = thumbnail.id == current_id;
-            let elems = thumbnail.render(
-                renderer, config, mapped, geo, scale, is_active, bob_y, alpha, target,
-            );
-            rv.extend(elems);
-        }
+                let config = &config.recent_windows;
 
-        rv.into_iter()
+                let is_active = Some(id) == current_id;
+                let elems = thumbnail.render(
+                    renderer, config, mapped, geo, scale, is_active, bob_y, alpha, target,
+                );
+                Some(elems)
+            });
+        let thumbnails = thumbnails.flatten();
+
+        panel.chain(thumbnails)
     }
 
     fn thumbnail_under(&self, pos: Point<f64, Logical>) -> Option<MappedId> {
