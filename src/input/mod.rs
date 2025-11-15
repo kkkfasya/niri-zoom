@@ -2241,9 +2241,7 @@ impl State {
                 filter,
             } => {
                 if self.niri.window_mru_ui.is_open() {
-                    self.niri
-                        .window_mru_ui
-                        .advance(Some(direction), scope, filter);
+                    self.niri.window_mru_ui.advance(direction, filter);
                     self.niri.queue_redraw_mru_output();
                 } else if self.niri.config.borrow().recent_windows.on {
                     // TODO: don't reopen from scratch from closing state
@@ -2293,7 +2291,7 @@ impl State {
             }
             Action::MruSetScope(scope) => {
                 if self.niri.window_mru_ui.is_open() {
-                    self.niri.window_mru_ui.advance(None, Some(scope), None);
+                    self.niri.window_mru_ui.set_scope(scope);
                     self.niri.queue_redraw_mru_output();
                 }
             }

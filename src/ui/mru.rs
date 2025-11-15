@@ -883,7 +883,7 @@ impl WindowMruUi {
         inner.view_pos = ViewPos::Static(inner.compute_view_pos());
 
         self.state = WindowMruUiState::Open(inner);
-        self.advance(Some(dir), None, None);
+        self.advance(dir, None);
     }
 
     pub fn close(&mut self, close_request: MruCloseRequest) -> Option<MappedId> {
@@ -919,27 +919,25 @@ impl WindowMruUi {
         response
     }
 
-    pub fn advance(
-        &mut self,
-        dir: Option<MruDirection>,
-        scope: Option<MruScope>,
-        filter: Option<MruFilter>,
-    ) {
+    pub fn advance(&mut self, dir: MruDirection, filter: Option<MruFilter>) {
         let WindowMruUiState::Open(inner) = &mut self.state else {
             return;
         };
         inner.freeze_view = false;
 
-        let new_scope = scope.unwrap_or(inner.wmru.scope);
-        let changed = inner.set_scope_and_filter(new_scope, filter);
-        if changed && scope.is_some() {
-            // Do not advance when changing the scope.
-        } else if let Some(dir) = dir {
-            match dir {
-                MruDirection::Forward => inner.wmru.forward(),
-                MruDirection::Backward => inner.wmru.backward(),
-            }
+        inner.set_scope_and_filter(inner.wmru.scope, filter);
+        match dir {
+            MruDirection::Forward => inner.wmru.forward(),
+            MruDirection::Backward => inner.wmru.backward(),
         }
+    }
+
+    pub fn set_scope(&mut self, scope: MruScope) {
+        let WindowMruUiState::Open(inner) = &mut self.state else {
+            return;
+        };
+        inner.freeze_view = false;
+        inner.set_scope_and_filter(scope, None);
     }
 
     pub fn cycle_scope(&mut self) {
@@ -954,7 +952,7 @@ impl WindowMruUi {
             .skip_while(|s| *s != scope)
             .nth(1)
             .unwrap();
-        self.advance(None, Some(scope), None);
+        self.set_scope(scope);
     }
 
     pub fn pointer_motion(&mut self, pos_within_output: Point<f64, Logical>) {
@@ -1336,7 +1334,7 @@ impl Inner {
         self.wmru.remove_by_idx(idx)
     }
 
-    fn set_scope_and_filter(&mut self, scope: MruScope, filter: Option<MruFilter>) -> bool {
+    fn set_scope_and_filter(&mut self, scope: MruScope, filter: Option<MruFilter>) {
         let old_scope = self.wmru.scope;
         // TODO this clones every time
         let old_filter = self.wmru.app_id_filter.clone();
@@ -1345,13 +1343,13 @@ impl Inner {
 
         let changed = self.wmru.set_scope_and_filter(scope, filter);
         if !changed {
-            return false;
+            return;
         }
 
         let Some(id) = self.wmru.current_id else {
             // If there's no current_id then the new filter caused all windows to disappear, so
             // there's nothing to animate.
-            return true;
+            return;
         };
         let idx = self.wmru.idx_of(id).unwrap();
 
@@ -1367,7 +1365,7 @@ impl Inner {
 
         if was_empty {
             self.view_pos = ViewPos::Static(self.compute_view_pos());
-            return true;
+            return;
         }
 
         let output_size = output_size(&self.output);
@@ -1401,8 +1399,6 @@ impl Inner {
         }
 
         self.view_pos.offset(-delta);
-
-        true
     }
 
     fn build_close_response(&self, close_request: MruCloseRequest) -> Option<MappedId> {
