@@ -1062,8 +1062,6 @@ impl WindowMruUi {
             return;
         };
 
-        // TODO: animate close.
-
         if inner.wmru.thumbnails.is_empty() {
             self.close(MruCloseRequest::Cancelled);
         }
