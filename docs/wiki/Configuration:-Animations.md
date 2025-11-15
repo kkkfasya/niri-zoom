@@ -426,6 +426,20 @@ animations {
 }
 ```
 
+#### `recent-windows-close`
+
+<sup>Since: next release</sup>
+
+The close fade-out animation of the recent windows switcher.
+
+```kdl
+animations {
+    recent-windows-close {
+        spring damping-ratio=1.0 stiffness=800 epsilon=0.001
+    }
+}
+```
+
 ### Synchronized Animations
 
 <sup>Since: 0.1.5</sup>
