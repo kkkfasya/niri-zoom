@@ -582,24 +582,18 @@ impl WindowMru {
         self.current_id = id;
     }
 
-    pub fn set_scope_and_filter(&mut self, scope: MruScope, filter: Option<MruFilter>) -> bool {
-        let mut changed = self.scope != scope;
+    pub fn set_scope(&mut self, scope: MruScope) -> Option<MruScope> {
+        if self.scope == scope {
+            return None;
+        }
+        let rv = Some(self.scope);
 
         if let Some(id) = self.current_id {
-            let (current_idx, current_thumbnail) = self
+            let (current_idx, _) = self
                 .thumbnails_with_idx()
                 .find(|(_, thumbnail)| thumbnail.id == id)
                 .unwrap();
 
-            if let Some(filter) = filter {
-                let filter = match filter {
-                    MruFilter::None => None,
-                    // TODO this clones every time on Alt-`?
-                    MruFilter::AppId => current_thumbnail.app_id.clone(),
-                };
-                changed |= self.app_id_filter != filter;
-                self.app_id_filter = filter;
-            }
             self.scope = scope;
 
             // Try to select the same, or the first thumbnail to the left. Failing that, select the
@@ -614,16 +608,66 @@ impl WindowMru {
             }
             self.current_id = id;
         } else {
-            if filter.is_some() {
-                // No current window, can't get app id.
-                changed |= self.app_id_filter.is_some();
-                self.app_id_filter = None;
-            }
             self.scope = scope;
             self.current_id = self.first_id();
         }
 
-        changed
+        rv
+    }
+
+    pub fn set_filter(&mut self, filter: MruFilter) -> Option<Option<String>> {
+        if self.app_id_filter.is_some() == (filter == MruFilter::AppId) {
+            // Filter unchanged.
+            return None;
+        }
+
+        if let Some(id) = self.current_id {
+            let (current_idx, current_thumbnail) = self
+                .thumbnails_with_idx()
+                .find(|(_, thumbnail)| thumbnail.id == id)
+                .unwrap();
+
+            let old = match filter {
+                MruFilter::None => {
+                    let old = self.app_id_filter.take();
+                    Some(old.expect("verified by early return at the top"))
+                }
+                MruFilter::AppId => {
+                    // If the current thumbnail is missing an app id, we can't set the filter.
+                    let current = current_thumbnail.app_id.clone()?;
+                    let old = self.app_id_filter.replace(current);
+                    assert!(old.is_none(), "verified by early return at the top");
+                    None
+                }
+            };
+
+            // Try to select the same, or the first thumbnail to the left. Failing that, select the
+            // first one to the right.
+            let mut id = self.first_id();
+
+            for (idx, thumbnail) in self.thumbnails_with_idx() {
+                if idx > current_idx {
+                    break;
+                }
+                id = Some(thumbnail.id);
+            }
+            self.current_id = id;
+
+            Some(old)
+        } else {
+            match filter {
+                MruFilter::None => {
+                    let old = self.app_id_filter.take();
+                    let old = old.expect("verified by early return at the top");
+                    self.current_id = self.first_id();
+                    Some(Some(old))
+                }
+                MruFilter::AppId => {
+                    // We don't have a current window to set the app id filter.
+                    None
+                }
+            }
+        }
     }
 
     fn idx_of(&self, id: MappedId) -> Option<usize> {
@@ -925,7 +969,10 @@ impl WindowMruUi {
         };
         inner.freeze_view = false;
 
-        inner.set_scope_and_filter(inner.wmru.scope, filter);
+        if let Some(filter) = filter {
+            inner.set_filter(filter);
+        }
+
         match dir {
             MruDirection::Forward => inner.wmru.forward(),
             MruDirection::Backward => inner.wmru.backward(),
@@ -937,7 +984,7 @@ impl WindowMruUi {
             return;
         };
         inner.freeze_view = false;
-        inner.set_scope_and_filter(scope, None);
+        inner.set_scope(scope);
     }
 
     pub fn cycle_scope(&mut self) {
@@ -1334,18 +1381,27 @@ impl Inner {
         self.wmru.remove_by_idx(idx)
     }
 
-    fn set_scope_and_filter(&mut self, scope: MruScope, filter: Option<MruFilter>) {
-        let old_scope = self.wmru.scope;
-        // TODO this clones every time
-        let old_filter = self.wmru.app_id_filter.clone();
-
+    fn set_scope(&mut self, scope: MruScope) {
         let was_empty = self.wmru.current_id.is_none();
-
-        let changed = self.wmru.set_scope_and_filter(scope, filter);
-        if !changed {
-            return;
+        if let Some(old_scope) = self.wmru.set_scope(scope) {
+            self.animate_scope_filter_change(was_empty, old_scope, None);
         }
+    }
 
+    fn set_filter(&mut self, filter: MruFilter) {
+        let was_empty = self.wmru.current_id.is_none();
+        if let Some(old_filter) = self.wmru.set_filter(filter) {
+            let old_filter = Some(old_filter.as_deref());
+            self.animate_scope_filter_change(was_empty, self.wmru.scope, old_filter);
+        }
+    }
+
+    fn animate_scope_filter_change(
+        &mut self,
+        was_empty: bool,
+        old_scope: MruScope,
+        old_filter: Option<Option<&str>>,
+    ) {
         let Some(id) = self.wmru.current_id else {
             // If there's no current_id then the new filter caused all windows to disappear, so
             // there's nothing to animate.
@@ -1355,7 +1411,8 @@ impl Inner {
 
         // Animate opening for newly appeared thumbnails.
         let config = self.config.borrow().animations.window_open.anim;
-        let matches_old = match_filter(old_scope, old_filter.as_deref());
+        let old_filter = old_filter.unwrap_or(self.wmru.app_id_filter.as_deref());
+        let matches_old = match_filter(old_scope, old_filter);
         let matches_new = match_filter(self.wmru.scope, self.wmru.app_id_filter.as_deref());
         for thumbnail in &mut self.wmru.thumbnails {
             if matches_new(thumbnail) && !matches_old(thumbnail) {

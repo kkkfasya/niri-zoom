@@ -103,10 +103,10 @@ impl Op {
             Op::First => mru.first(),
             Op::Last => mru.last(),
             Op::SetScope(scope) => {
-                mru.set_scope_and_filter(*scope, None);
+                mru.set_scope(*scope);
             }
             Op::SetFilter(filter) => {
-                mru.set_scope_and_filter(mru.scope, Some(*filter));
+                mru.set_filter(*filter);
             }
             Op::Remove(idx) => {
                 if *idx < mru.thumbnails.len() {

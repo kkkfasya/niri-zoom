@@ -2248,9 +2248,13 @@ impl State {
                     self.niri.mru_commit();
                     let config = self.niri.config.borrow();
                     let scope = scope.unwrap_or(self.niri.window_mru_ui.scope());
+
                     let mut wmru = WindowMru::new(&self.niri);
                     if !wmru.is_empty() {
-                        wmru.set_scope_and_filter(scope, filter);
+                        wmru.set_scope(scope);
+                        if let Some(filter) = filter {
+                            wmru.set_filter(filter);
+                        }
 
                         if let Some(output) = self.niri.layout.active_output() {
                             self.niri.window_mru_ui.open(
