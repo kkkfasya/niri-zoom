@@ -1552,11 +1552,21 @@ impl Inner {
         let padding = self.config.borrow().recent_windows.highlight.padding;
         let padding = round(padding) + round(BORDER);
         let padding = Point::new(padding, padding);
+        let title_gap = round(TITLE_GAP);
 
         for (thumbnail, mut geo) in self.thumbnails_in_view_static() {
-            // TODO title text height.
             geo.loc -= padding;
             geo.size += padding.to_size().upscale(2.);
+
+            // It doesn't really matter all that much if the title texture is stale here, and it
+            // would be annoying to thread the rendering into this function. The texture might be
+            // one frame stale or so.
+            if let Some(texture) = thumbnail.title_texture.borrow().get_stale() {
+                let title_size = texture.logical_size();
+                geo.size.h += title_gap + title_size.h;
+                // Subtract half the padding so it looks more balanced visually.
+                geo.size.h -= round(padding.y / 2.);
+            }
 
             if geo.contains(pos) {
                 return Some(thumbnail.id);
@@ -1586,6 +1596,14 @@ impl TitleTexture {
         self.texture
             .get_or_insert_with(|| generate_title_texture(renderer, title, scale).ok())
             .clone()
+    }
+
+    fn get_stale(&self) -> Option<&MruTexture> {
+        if let Some(Some(texture)) = &self.texture {
+            Some(texture)
+        } else {
+            None
+        }
     }
 }
 
