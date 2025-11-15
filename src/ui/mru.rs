@@ -767,10 +767,6 @@ pub struct Inner {
     /// Time when the UI should appear.
     open_at: Duration,
 
-    /// Thumbnails linked to windows that were just closed, or to windows
-    /// that no longer match the current MRU filter or scope.
-    // closing_thumbnails: Vec<ClosingThumbnail>,
-
     /// Output the UI was opened on.
     output: Output,
 
@@ -915,7 +911,6 @@ impl WindowMruUi {
             wmru,
             view_pos: ViewPos::Static(0.),
             freeze_view: false,
-            // closing_thumbnails: vec![],
             open_at: clock.now_unadjusted() + open_delay,
             clock,
             config: self.config.clone(),
@@ -1242,14 +1237,11 @@ impl Inner {
     fn are_animations_ongoing(&self) -> bool {
         self.clock.now_unadjusted() < self.open_at
             || self.view_pos.are_animations_ongoing()
-            // || !self.closing_thumbnails.is_empty()
             || self.wmru.are_animations_ongoing()
     }
 
     fn advance_animations(&mut self) {
         self.view_pos.advance_animations();
-        // self.closing_thumbnails
-        //     .retain_mut(|closing| closing.are_animations_ongoing());
         self.wmru.advance_animations();
 
         if !self.freeze_view {
@@ -1564,13 +1556,6 @@ impl Inner {
             WindowMruUiRenderElement::TextureElement(elem)
         });
         let panel = panel.into_iter();
-
-        // As with tiles, render thumbnails for closing windows on top of
-        // others.
-        // for closing in self.closing_thumbnails.iter().rev() {
-        //     let elem = closing.render();
-        //     rv.push(elem.into());
-        // }
 
         let current_id = self.wmru.current_id;
 
