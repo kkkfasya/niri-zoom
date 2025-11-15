@@ -237,7 +237,7 @@ impl Thumbnail {
         };
         let bob_offset = Point::new(0., bob_y);
 
-        // TODO: offscreen
+        // FIXME: this could use mipmaps, for that it should be rendered through an offscreen.
         let elems = mapped
             .render_normal(renderer, Point::new(0., 0.), s, preview_alpha, target)
             .into_iter();
