@@ -379,7 +379,7 @@ impl Thumbnail {
                 config.highlight.active_color
             };
             if !is_active {
-                color *= 0.3;
+                color *= 0.4;
             }
 
             let radius = CornerRadius::from(config.highlight.corner_radius as f32);
