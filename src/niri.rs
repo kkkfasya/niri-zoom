@@ -4445,6 +4445,7 @@ impl Niri {
             .window_mru_ui
             .render_output(self, output, renderer, target)
             .into_iter()
+            .flatten()
             .map(OutputRenderElements::from);
 
         elements.extend(mru_elements);

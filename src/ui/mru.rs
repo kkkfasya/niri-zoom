@@ -30,6 +30,7 @@ use crate::niri_render_elements;
 use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::clipped_surface::ClippedSurfaceRenderElement;
 use crate::render_helpers::gradient_fade_texture::GradientFadeTextureRenderElement;
+use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
@@ -213,7 +214,6 @@ impl Thumbnail {
         scale: f64,
         is_active: bool,
         bob_y: f64,
-        alpha: f32,
         target: RenderTarget,
     ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> {
         let _span = tracy_client::span!("Thumbnail::render");
@@ -228,8 +228,7 @@ impl Thumbnail {
             .open_animation
             .as_ref()
             .map_or(1., |a| a.clamped_value() as f32)
-            .clamp(0., 1.)
-            * alpha;
+            .clamp(0., 1.);
 
         let bob_y = if mapped.rules().baba_is_float == Some(true) {
             bob_y
@@ -399,7 +398,7 @@ impl Thumbnail {
                 Rectangle::default(),
                 radius,
                 scale,
-                alpha * 0.5,
+                0.5,
             );
             let bg_elems = background
                 .render(renderer, loc)
@@ -420,7 +419,7 @@ impl Thumbnail {
                 Rectangle::default(),
                 radius.expanded_by(config.width as f32),
                 scale,
-                alpha,
+                1.,
             );
 
             let border_elems = border
@@ -736,6 +735,9 @@ pub struct Inner {
 
     /// Backdrop buffers for each output.
     backdrop_buffers: RefCell<HashMap<Output, SolidColorBuffer>>,
+
+    /// Offscreen buffer for the closing fade animation on the main output.
+    offscreen: OffscreenBuffer,
 }
 
 #[derive(Debug)]
@@ -821,6 +823,7 @@ niri_render_elements! {
         TextureElement = PrimaryGpuTextureRenderElement,
         GradientFadeElem = GradientFadeTextureRenderElement,
         FocusRing = FocusRingRenderElement,
+        Offscreen = OffscreenRenderElement,
         Thumbnail = RelocateRenderElement<RescaleRenderElement<ThumbnailRenderElement<R>>>,
     }
 }
@@ -875,6 +878,7 @@ impl WindowMruUi {
             output,
             scope_panel: Default::default(),
             backdrop_buffers: Default::default(),
+            offscreen: OffscreenBuffer::default(),
         };
         inner.view_pos = ViewPos::Static(inner.compute_view_pos());
 
@@ -1020,48 +1024,93 @@ impl WindowMruUi {
         }
     }
 
-    pub fn render_output<R: NiriRenderer>(
-        &self,
-        niri: &Niri,
+    pub fn render_output<'a, R: NiriRenderer>(
+        &'a self,
+        niri: &'a Niri,
         output: &Output,
-        renderer: &mut R,
+        renderer: &'a mut R,
         target: RenderTarget,
-    ) -> Vec<WindowMruUiRenderElement<R>> {
-        let mut rv = Vec::new();
+    ) -> Option<impl Iterator<Item = WindowMruUiRenderElement<R>> + 'a> {
+        let _span = tracy_client::span!("WindowMruUi::render_output");
 
         let (inner, progress) = match &self.state {
-            WindowMruUiState::Closed { .. } => return rv,
+            WindowMruUiState::Closed { .. } => return None,
             WindowMruUiState::Closing { inner, anim } => (inner, anim.clamped_value()),
             WindowMruUiState::Open(inner) => {
                 if inner.open_at <= inner.clock.now_unadjusted() {
                     (inner, 1.)
                 } else {
-                    return rv;
+                    return None;
                 }
             }
         };
 
         let alpha = progress.clamp(0., 1.) as f32;
 
-        if *output == inner.output {
-            rv.extend(inner.render(niri, renderer, alpha, target));
-        }
-
         // Put a backdrop above the current desktop view to contrast the thumbnails.
         let mut buffers = inner.backdrop_buffers.borrow_mut();
         let buffer = buffers.entry(output.clone()).or_default();
         buffer.resize(output_size(output));
         buffer.set_color(BACKDROP_COLOR);
+        let render_backdrop = |alpha| {
+            SolidColorRenderElement::from_buffer(
+                buffer,
+                Point::new(0., 0.),
+                alpha,
+                Kind::Unspecified,
+            )
+            // Can't wrap into WindowMruUiRenderElement::SolidColor() right here since we have
+            // different <R> generic in offscreen vs. normal path.
+        };
 
-        let elem = SolidColorRenderElement::from_buffer(
-            buffer,
-            Point::new(0., 0.),
-            alpha,
-            Kind::Unspecified,
-        );
-        rv.push(WindowMruUiRenderElement::SolidColor(elem));
+        // During the closing fade, use an offscreen to avoid transparent compositing artifacts.
+        let offscreen_elem = if *output == inner.output && alpha < 1. {
+            let renderer = renderer.as_gles_renderer();
+            let mut elems = Vec::from_iter(inner.render(niri, renderer, target));
+            elems.push(WindowMruUiRenderElement::SolidColor(render_backdrop(1.)));
 
-        rv
+            let scale = output.current_scale().fractional_scale();
+            match inner.offscreen.render(renderer, Scale::from(scale), &elems) {
+                Ok((elem, _sync, _data)) => {
+                    // FIXME: would be good to passthrough offscreen data to visible windows here.
+                    // As is, during the closing fade, windows from other workspaces stop receiving
+                    // frame callbacks.
+                    //
+                    // However, we need to refactor our offscreen data a bit to make this nicer.
+                    // Currently it supports a stack of offscreens, but not a several unrelated
+                    // offscreens showing the same window (possibly in addition to the window
+                    // itself).
+                    //
+                    // Anyhow, this is not very noticable since Alt-Tab closing happens quickly.
+                    Some(WindowMruUiRenderElement::Offscreen(elem.with_alpha(alpha)))
+                }
+                Err(err) => {
+                    warn!("error rendering MRU to offscreen for fade-out: {err:?}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // When alpha is 1., render everything directly, without an offscreen.
+        //
+        // This is not used as fallback when offscreen fails to render because it looks better to
+        // hide the previews immediately than to render them with alpha = 1. during a fade-out.
+        let normal_elems =
+            (*output == inner.output && alpha == 1.).then(|| inner.render(niri, renderer, target));
+        let normal_elems = normal_elems.into_iter().flatten();
+
+        // This is used for both normal elems and for other outputs.
+        let backdrop_elem = (offscreen_elem.is_none())
+            .then(|| WindowMruUiRenderElement::SolidColor(render_backdrop(alpha)));
+
+        Some(
+            offscreen_elem
+                .into_iter()
+                .chain(normal_elems)
+                .chain(backdrop_elem),
+        )
     }
 
     pub fn are_animations_ongoing(&self) -> bool {
@@ -1437,7 +1486,6 @@ impl Inner {
         &'a self,
         niri: &'a Niri,
         renderer: &'a mut R,
-        alpha: f32,
         target: RenderTarget,
     ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> + 'a {
         let _span = tracy_client::span!("mru::Inner::render");
@@ -1457,7 +1505,7 @@ impl Inner {
             let elem = PrimaryGpuTextureRenderElement(TextureRenderElement::from_texture_buffer(
                 texture.clone(),
                 location,
-                alpha,
+                1.,
                 None,
                 None,
                 Kind::Unspecified,
@@ -1493,7 +1541,7 @@ impl Inner {
 
                 let is_active = Some(id) == current_id;
                 let elems = thumbnail.render(
-                    renderer, config, mapped, geo, scale, is_active, bob_y, alpha, target,
+                    renderer, config, mapped, geo, scale, is_active, bob_y, target,
                 );
                 Some(elems)
             });
