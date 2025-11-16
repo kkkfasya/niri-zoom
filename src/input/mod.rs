@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use calloop::timer::{TimeoutAction, Timer};
 use input::event::gesture::GestureEventCoordinates as _;
-use niri_config::{Action, Bind, Binds, Config, Key, ModKey, Modifiers, SwitchBinds, Trigger};
+use niri_config::{
+    Action, Bind, Binds, Config, Key, ModKey, Modifiers, MruDirection, SwitchBinds, Trigger,
+};
 use niri_ipc::LayoutSwitchTarget;
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event,
@@ -2239,9 +2241,17 @@ impl State {
                             self.niri.window_mru_ui.open(
                                 self.niri.clock.clone(),
                                 wmru,
-                                direction,
                                 output.clone(),
                             );
+
+                            // Only select the *next* window if some window (which should be the
+                            // first one) is already focused. If nothing is focused, keep the first
+                            // window (which is logically the "previously selected" one).
+                            let keep_first = direction == MruDirection::Forward
+                                && self.niri.layout.focus().is_none();
+                            if !keep_first {
+                                self.niri.window_mru_ui.advance(direction, None);
+                            }
 
                             drop(config);
                             self.niri.queue_redraw_all();

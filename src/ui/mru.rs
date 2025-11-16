@@ -900,7 +900,7 @@ impl WindowMruUi {
         matches!(self.state, WindowMruUiState::Open { .. })
     }
 
-    pub fn open(&mut self, clock: Clock, wmru: WindowMru, dir: MruDirection, output: Output) {
+    pub fn open(&mut self, clock: Clock, wmru: WindowMru, output: Output) {
         if self.is_open() {
             return;
         }
@@ -923,7 +923,6 @@ impl WindowMruUi {
         inner.view_pos = ViewPos::Static(inner.compute_view_pos());
 
         self.state = WindowMruUiState::Open(inner);
-        self.advance(dir, None);
     }
 
     pub fn close(&mut self, close_request: MruCloseRequest) -> Option<MappedId> {
