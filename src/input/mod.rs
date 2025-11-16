@@ -4325,7 +4325,6 @@ fn find_configured_bind<'a>(
         modifiers |= Modifiers::COMPOSITOR;
     }
 
-    // iterate through configured bindings looking for a match
     for bind in bindings {
         if bind.key.trigger != trigger {
             continue;

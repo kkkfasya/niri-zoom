@@ -30,7 +30,7 @@ pub enum WindowRef<'a> {
 }
 
 /// Rules fully resolved for a window.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub struct ResolvedWindowRules {
     /// Default width for this window.
     ///
@@ -440,11 +440,7 @@ impl ResolvedWindowRules {
     }
 }
 
-pub fn window_matches(
-    window: WindowRef,
-    role: &XdgToplevelSurfaceRoleAttributes,
-    m: &Match,
-) -> bool {
+fn window_matches(window: WindowRef, role: &XdgToplevelSurfaceRoleAttributes, m: &Match) -> bool {
     // Must be ensured by the caller.
     let server_pending = role.server_pending.as_ref().unwrap();
 

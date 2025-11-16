@@ -381,10 +381,12 @@ pub struct Niri {
     pub locked_hint: Option<bool>,
 
     pub screenshot_ui: ScreenshotUi,
-    pub window_mru_ui: WindowMruUi,
     pub config_error_notification: ConfigErrorNotification,
     pub hotkey_overlay: HotkeyOverlay,
     pub exit_confirm_dialog: ExitConfirmDialog,
+
+    pub window_mru_ui: WindowMruUi,
+    pub pending_mru_commit: Option<PendingMruCommit>,
 
     pub pick_window: Option<async_channel::Sender<Option<MappedId>>>,
     pub pick_color: Option<async_channel::Sender<Option<niri_ipc::PickedColor>>>,
@@ -419,8 +421,6 @@ pub struct Niri {
     /// Window ID for the "dynamic cast" special window for the xdp-gnome picker.
     #[cfg(feature = "xdp-gnome-screencast")]
     pub dynamic_cast_id_for_portal: MappedId,
-
-    pending_mru_commit: Option<PendingMruCommit>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -587,19 +587,9 @@ pub enum CastTarget {
     Window { id: u64 },
 }
 
-/// Window MRU traversal context.
-#[derive(Debug)]
-pub struct WindowMRU {
-    /// List of window ids to be traversed in MRU order.
-    pub ids: Vec<MappedId>,
-
-    /// Current index in the MRU traversal.
-    pub current: usize,
-}
-
 /// Pending update to a window's focus timestamp.
 #[derive(Debug)]
-struct PendingMruCommit {
+pub struct PendingMruCommit {
     id: MappedId,
     token: RegistrationToken,
     stamp: Duration,
@@ -2829,10 +2819,12 @@ impl Niri {
             locked_hint: None,
 
             screenshot_ui,
-            window_mru_ui,
             config_error_notification,
             hotkey_overlay,
             exit_confirm_dialog,
+
+            window_mru_ui,
+            pending_mru_commit: None,
 
             pick_window: None,
             pick_color: None,
@@ -2864,8 +2856,6 @@ impl Niri {
 
             #[cfg(feature = "xdp-gnome-screencast")]
             dynamic_cast_id_for_portal: MappedId::next(),
-
-            pending_mru_commit: None,
         };
 
         niri.reset_pointer_inactivity_timer();
@@ -4441,18 +4431,23 @@ impl Niri {
             return elements;
         }
 
-        let mru_elements = self
-            .window_mru_ui
-            .render_output(self, output, renderer, target)
-            .into_iter()
-            .flatten()
-            .map(OutputRenderElements::from);
-
-        elements.extend(mru_elements);
-
         // Draw the hotkey overlay on top.
         if let Some(element) = self.hotkey_overlay.render(renderer, output) {
             elements.push(element.into());
+        }
+
+        // Then, the Alt-Tab switcher.
+        {
+            // Make sure the span includes consuming the iterator.
+            let _span = tracy_client::span!("mru render");
+
+            let mru_elements = self
+                .window_mru_ui
+                .render_output(self, output, renderer, target)
+                .into_iter()
+                .flatten()
+                .map(OutputRenderElements::from);
+            elements.extend(mru_elements);
         }
 
         // Don't draw the focus ring on the workspaces while interactively moving above those
@@ -6033,6 +6028,7 @@ impl Niri {
                 self.screenshot_ui.close();
                 self.cursor_manager
                     .set_cursor_image(CursorImageStatus::default_named());
+                self.cancel_mru();
 
                 if self.output_state.is_empty() {
                     // There are no outputs, lock the session right away.

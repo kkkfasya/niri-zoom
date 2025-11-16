@@ -81,12 +81,19 @@ static SCOPE_CYCLE: [MruScope; 3] = [MruScope::All, MruScope::Workspace, MruScop
 #[derive(Debug)]
 struct Thumbnail {
     id: MappedId,
-    timestamp: Option<Duration>,
-    on_current_workspace: bool,
-    on_current_output: bool,
-    app_id: Option<String>,
 
-    // Cached size of the window.
+    /// Focus timestamp, if any.
+    timestamp: Option<Duration>,
+    /// Whether the window is on the current MRU workspace.
+    on_current_workspace: bool,
+    /// Whether the window is on the current MRU output.
+    on_current_output: bool,
+
+    /// Cached app ID of the window.
+    ///
+    /// Currently not updated live to avoid having to refilter windows.
+    app_id: Option<String>,
+    /// Cached size of the window.
     size: Size<i32, Logical>,
 
     clock: Clock,
@@ -730,13 +737,13 @@ fn match_filter(scope: MruScope, app_id_filter: Option<&str>) -> impl Fn(&Thumbn
 type MruTexture = TextureBuffer<GlesTexture>;
 
 pub struct WindowMruUi {
-    state: WindowMruUiState,
+    state: UiState,
     preset_opened_binds: Vec<Bind>,
     dynamic_opened_binds: Vec<Bind>,
     config: Rc<RefCell<Config>>,
 }
 
-pub enum WindowMruUiState {
+enum UiState {
     Open(Inner),
     Closing {
         inner: Inner,
@@ -749,7 +756,7 @@ pub enum WindowMruUiState {
 }
 
 /// State of an opened MRU UI.
-pub struct Inner {
+struct Inner {
     /// List of Window Ids to display in the MRU UI.
     wmru: WindowMru,
 
@@ -782,7 +789,7 @@ pub struct Inner {
 }
 
 #[derive(Debug)]
-pub enum ViewPos {
+enum ViewPos {
     /// The view position is static.
     Static(f64),
     /// The view position is animating.
@@ -871,7 +878,7 @@ niri_render_elements! {
 impl WindowMruUi {
     pub fn new(config: Rc<RefCell<Config>>) -> Self {
         let mut rv = Self {
-            state: WindowMruUiState::Closed {
+            state: UiState::Closed {
                 previous_scope: MruScope::default(),
             },
             preset_opened_binds: make_preset_opened_binds(),
@@ -888,15 +895,15 @@ impl WindowMruUi {
 
     pub fn update_config(&mut self) {
         let inner = match &mut self.state {
-            WindowMruUiState::Open(inner) => inner,
-            WindowMruUiState::Closing { inner, .. } => inner,
-            WindowMruUiState::Closed { .. } => return,
+            UiState::Open(inner) => inner,
+            UiState::Closing { inner, .. } => inner,
+            UiState::Closed { .. } => return,
         };
         inner.update_config();
     }
 
     pub fn is_open(&self) -> bool {
-        matches!(self.state, WindowMruUiState::Open { .. })
+        matches!(self.state, UiState::Open { .. })
     }
 
     pub fn open(&mut self, clock: Clock, wmru: WindowMru, output: Output) {
@@ -921,7 +928,7 @@ impl WindowMruUi {
         };
         inner.view_pos = ViewPos::Static(inner.compute_view_pos());
 
-        self.state = WindowMruUiState::Open(inner);
+        self.state = UiState::Open(inner);
     }
 
     pub fn close(&mut self, close_request: MruCloseRequest) -> Option<MappedId> {
@@ -930,11 +937,11 @@ impl WindowMruUi {
         }
         let state = mem::replace(
             &mut self.state,
-            WindowMruUiState::Closed {
+            UiState::Closed {
                 previous_scope: MruScope::default(),
             },
         );
-        let WindowMruUiState::Open(inner) = state else {
+        let UiState::Open(inner) = state else {
             unreachable!();
         };
 
@@ -945,7 +952,7 @@ impl WindowMruUi {
 
         if inner.clock.now_unadjusted() < inner.open_at {
             // Hasn't displayed yet, no need to fade out.
-            let WindowMruUiState::Closed { previous_scope } = &mut self.state else {
+            let UiState::Closed { previous_scope } = &mut self.state else {
                 unreachable!()
             };
             *previous_scope = inner.wmru.scope;
@@ -956,12 +963,12 @@ impl WindowMruUi {
         let config = config.animations.recent_windows_close.0;
 
         let anim = Animation::new(inner.clock.clone(), 1., 0., 0., config);
-        self.state = WindowMruUiState::Closing { inner, anim };
+        self.state = UiState::Closing { inner, anim };
         response
     }
 
     pub fn advance(&mut self, dir: MruDirection, filter: Option<MruFilter>) {
-        let WindowMruUiState::Open(inner) = &mut self.state else {
+        let UiState::Open(inner) = &mut self.state else {
             return;
         };
         inner.freeze_view = false;
@@ -977,7 +984,7 @@ impl WindowMruUi {
     }
 
     pub fn set_scope(&mut self, scope: MruScope) {
-        let WindowMruUiState::Open(inner) = &mut self.state else {
+        let UiState::Open(inner) = &mut self.state else {
             return;
         };
         inner.freeze_view = false;
@@ -985,7 +992,7 @@ impl WindowMruUi {
     }
 
     pub fn cycle_scope(&mut self) {
-        let WindowMruUiState::Open(inner) = &mut self.state else {
+        let UiState::Open(inner) = &mut self.state else {
             return;
         };
 
@@ -1000,7 +1007,7 @@ impl WindowMruUi {
     }
 
     pub fn pointer_motion(&mut self, pos_within_output: Point<f64, Logical>) -> Option<MappedId> {
-        let WindowMruUiState::Open(inner) = &mut self.state else {
+        let UiState::Open(inner) = &mut self.state else {
             return None;
         };
 
@@ -1014,7 +1021,7 @@ impl WindowMruUi {
     }
 
     pub fn first(&mut self) {
-        let WindowMruUiState::Open(inner) = &mut self.state else {
+        let UiState::Open(inner) = &mut self.state else {
             return;
         };
         inner.freeze_view = false;
@@ -1022,7 +1029,7 @@ impl WindowMruUi {
     }
 
     pub fn last(&mut self) {
-        let WindowMruUiState::Open(inner) = &mut self.state else {
+        let UiState::Open(inner) = &mut self.state else {
             return;
         };
         inner.freeze_view = false;
@@ -1031,29 +1038,27 @@ impl WindowMruUi {
 
     pub fn scope(&self) -> MruScope {
         match &self.state {
-            WindowMruUiState::Closed { previous_scope, .. } => *previous_scope,
-            WindowMruUiState::Open(inner) | WindowMruUiState::Closing { inner, .. } => {
-                inner.wmru.scope
-            }
+            UiState::Closed { previous_scope, .. } => *previous_scope,
+            UiState::Open(inner) | UiState::Closing { inner, .. } => inner.wmru.scope,
         }
     }
 
     pub fn current_window_id(&self) -> Option<MappedId> {
-        let WindowMruUiState::Open(inner) = &self.state else {
+        let UiState::Open(inner) = &self.state else {
             return None;
         };
         inner.wmru.current_id
     }
 
     pub fn update_window(&mut self, layout: &Layout<Mapped>, id: MappedId) {
-        let WindowMruUiState::Open(inner) = &mut self.state else {
+        let UiState::Open(inner) = &mut self.state else {
             return;
         };
         inner.update_window(layout, id);
     }
 
     pub fn remove_window(&mut self, id: MappedId) {
-        let WindowMruUiState::Open(inner) = &mut self.state else {
+        let UiState::Open(inner) = &mut self.state else {
             return;
         };
 
@@ -1073,12 +1078,10 @@ impl WindowMruUi {
         renderer: &'a mut R,
         target: RenderTarget,
     ) -> Option<impl Iterator<Item = WindowMruUiRenderElement<R>> + 'a> {
-        let _span = tracy_client::span!("WindowMruUi::render_output");
-
         let (inner, progress) = match &self.state {
-            WindowMruUiState::Closed { .. } => return None,
-            WindowMruUiState::Closing { inner, anim } => (inner, anim.clamped_value()),
-            WindowMruUiState::Open(inner) => {
+            UiState::Closed { .. } => return None,
+            UiState::Closing { inner, anim } => (inner, anim.clamped_value()),
+            UiState::Open(inner) => {
                 if inner.open_at <= inner.clock.now_unadjusted() {
                     (inner, 1.)
                 } else {
@@ -1157,25 +1160,25 @@ impl WindowMruUi {
 
     pub fn are_animations_ongoing(&self) -> bool {
         match &self.state {
-            WindowMruUiState::Open(inner) => inner.are_animations_ongoing(),
-            WindowMruUiState::Closing { .. } => true,
-            WindowMruUiState::Closed { .. } => false,
+            UiState::Open(inner) => inner.are_animations_ongoing(),
+            UiState::Closing { .. } => true,
+            UiState::Closed { .. } => false,
         }
     }
 
     pub fn advance_animations(&mut self) {
         match &mut self.state {
-            WindowMruUiState::Open(inner) => inner.advance_animations(),
-            WindowMruUiState::Closing { inner, anim } => {
+            UiState::Open(inner) => inner.advance_animations(),
+            UiState::Closing { inner, anim } => {
                 if anim.is_done() {
-                    self.state = WindowMruUiState::Closed {
+                    self.state = UiState::Closed {
                         previous_scope: inner.wmru.scope,
                     };
                     return;
                 }
                 inner.advance_animations();
             }
-            WindowMruUiState::Closed { .. } => {}
+            UiState::Closed { .. } => {}
         }
     }
 
@@ -1195,7 +1198,7 @@ impl WindowMruUi {
 
     pub fn output(&self) -> Option<&Output> {
         match &self.state {
-            WindowMruUiState::Open(inner) => Some(&inner.output),
+            UiState::Open(inner) => Some(&inner.output),
             _ => None,
         }
     }
@@ -1517,8 +1520,6 @@ impl Inner {
         renderer: &'a mut R,
         target: RenderTarget,
     ) -> impl Iterator<Item = WindowMruUiRenderElement<R>> + 'a {
-        let _span = tracy_client::span!("mru::Inner::render");
-
         let output_size = output_size(&self.output);
         let scale = self.output.current_scale().fractional_scale();
 
