@@ -6527,11 +6527,11 @@ impl Niri {
     }
 
     pub fn cancel_mru(&mut self) {
-        self.close_mru(MruCloseRequest::Cancelled);
+        self.close_mru(MruCloseRequest::Cancel);
     }
 
     pub fn confirm_mru(&mut self) -> Option<Window> {
-        self.close_mru(MruCloseRequest::Current)
+        self.close_mru(MruCloseRequest::Confirm)
     }
 
     // Consume the active `PendingMruCommit`, if any, and use the information

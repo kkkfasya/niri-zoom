@@ -845,8 +845,8 @@ impl ViewPos {
 }
 
 pub enum MruCloseRequest {
-    Cancelled,
-    Current,
+    Cancel,
+    Confirm,
 }
 
 niri_render_elements! {
@@ -939,8 +939,8 @@ impl WindowMruUi {
         };
 
         let response = match close_request {
-            MruCloseRequest::Cancelled => None,
-            MruCloseRequest::Current => inner.wmru.current_id,
+            MruCloseRequest::Cancel => None,
+            MruCloseRequest::Confirm => inner.wmru.current_id,
         };
 
         if inner.clock.now_unadjusted() < inner.open_at {
@@ -1062,7 +1062,7 @@ impl WindowMruUi {
         };
 
         if inner.wmru.thumbnails.is_empty() {
-            self.close(MruCloseRequest::Cancelled);
+            self.close(MruCloseRequest::Cancel);
         }
     }
 
