@@ -2918,10 +2918,6 @@ impl State {
             }
         }
 
-        // The event is getting forwarded to a client, consider that the
-        // MRU Window order shoud be committed.
-        self.niri.mru_commit();
-
         pointer.button(
             self,
             &ButtonEvent {
@@ -2932,6 +2928,10 @@ impl State {
             },
         );
         pointer.frame(self);
+
+        // The event is getting forwarded to a client, consider that the
+        // MRU Window order shoud be committed.
+        self.niri.mru_commit();
     }
 
     fn on_pointer_axis<I: InputBackend>(&mut self, event: I::PointerAxisEvent) {
@@ -3451,8 +3451,6 @@ impl State {
 
             self.niri.pointer_visibility = PointerVisibility::Visible;
             self.niri.tablet_cursor_location = Some(pos);
-
-            self.niri.mru_commit();
         }
 
         // Redraw to update the cursor position.
@@ -3517,7 +3515,6 @@ impl State {
                                 drop(workspaces);
                                 self.niri.layout.focus_output(&output);
                                 self.niri.layout.toggle_overview_to_workspace(ws_idx);
-                                self.niri.mru_commit();
                             }
                         }
 
@@ -3584,7 +3581,6 @@ impl State {
                             SERIAL_COUNTER.next_serial(),
                             event.time_msec(),
                         );
-                        self.niri.mru_commit();
                     }
                     self.niri.pointer_visibility = PointerVisibility::Visible;
                     self.niri.tablet_cursor_location = Some(pos);
@@ -4080,6 +4076,7 @@ impl State {
 
         // We're using touch, hide the pointer.
         self.niri.pointer_visibility = PointerVisibility::Disabled;
+
         self.niri.mru_commit();
     }
     fn on_touch_up<I: InputBackend>(&mut self, evt: I::TouchUpEvent) {

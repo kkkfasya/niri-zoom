@@ -6536,8 +6536,13 @@ impl Niri {
         self.close_mru(MruCloseRequest::Cancel);
     }
 
-    // Consume the active `PendingMruCommit`, if any, and use the information
-    // it contains to update the (active) window's focus timestamp
+    /// Apply a pending MRU commit immediately.
+    ///
+    /// Called for example on input events that reach the active window, which immediately adds it
+    /// to the MRU.
+    ///
+    /// Importantly, we're not calling this on events like pointer motion, because they are used
+    /// for focus-follows-mouse, and in this case should not commit the window to the MRU.
     pub fn mru_commit(&mut self) {
         let Some(pending) = self.pending_mru_commit.take() else {
             return;
