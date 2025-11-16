@@ -2206,10 +2206,7 @@ impl State {
                 }
             }
             Action::MruConfirm => {
-                if let Some(window) = self.niri.confirm_mru() {
-                    // Transfer focus to the selected window id.
-                    self.focus_window(&window);
-                }
+                self.confirm_mru();
             }
             Action::MruCancel => {
                 self.niri.cancel_mru();
@@ -2644,9 +2641,7 @@ impl State {
                     if mru_output == output {
                         let id = self.niri.window_mru_ui.pointer_motion(pos_within_output);
                         if id.is_some() {
-                            if let Some(window) = self.niri.confirm_mru() {
-                                self.focus_window(&window);
-                            }
+                            self.confirm_mru();
                         } else {
                             self.niri.cancel_mru();
                         }
@@ -3968,12 +3963,12 @@ impl State {
                 if mru_output == output {
                     let id = self.niri.window_mru_ui.pointer_motion(pos_within_output);
                     if id.is_some() {
-                        if let Some(window) = self.niri.confirm_mru() {
-                            self.focus_window(&window);
-                        } else {
-                            self.niri.cancel_mru();
-                        }
+                        self.confirm_mru();
+                    } else {
+                        self.niri.cancel_mru();
                     }
+                } else {
+                    self.niri.cancel_mru();
                 }
             }
         } else if !handle.is_grabbed() {

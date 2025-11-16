@@ -964,6 +964,12 @@ impl State {
         self.niri.queue_redraw_all();
     }
 
+    pub fn confirm_mru(&mut self) {
+        if let Some(window) = self.niri.close_mru(MruCloseRequest::Confirm) {
+            self.focus_window(&window);
+        }
+    }
+
     pub fn maybe_warp_cursor_to_focus(&mut self) -> bool {
         let focused = match self.niri.config.borrow().input.warp_mouse_to_focus {
             None => return false,
@@ -6528,10 +6534,6 @@ impl Niri {
 
     pub fn cancel_mru(&mut self) {
         self.close_mru(MruCloseRequest::Cancel);
-    }
-
-    pub fn confirm_mru(&mut self) -> Option<Window> {
-        self.close_mru(MruCloseRequest::Confirm)
     }
 
     // Consume the active `PendingMruCommit`, if any, and use the information
