@@ -373,6 +373,7 @@ impl Thumbnail {
                 size.h -= round(padding.y / 2.);
             }
 
+            // FIXME: gradient support (will require passing down correct view_rect).
             let mut color = if is_urgent {
                 config.highlight.urgent_color
             } else {
