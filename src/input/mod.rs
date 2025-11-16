@@ -2635,7 +2635,9 @@ impl State {
             let mods = self.niri.seat.get_keyboard().unwrap().modifier_state();
             let modifiers = modifiers_from_state(mods);
 
+            let mut is_mru_open = false;
             if let Some(mru_output) = self.niri.window_mru_ui.output() {
+                is_mru_open = true;
                 if let Some(MouseButton::Left) = button {
                     let location = pointer.current_location();
                     let (output, pos_within_output) = self.niri.output_under(location).unwrap();
@@ -2649,12 +2651,13 @@ impl State {
                     } else {
                         self.niri.cancel_mru();
                     }
+
+                    self.niri.suppressed_buttons.insert(button_code);
+                    return;
                 }
-                self.niri.suppressed_buttons.insert(button_code);
-                return;
             }
 
-            if self.niri.mods_with_mouse_binds.contains(&modifiers) {
+            if is_mru_open || self.niri.mods_with_mouse_binds.contains(&modifiers) {
                 if let Some(bind) = match button {
                     Some(MouseButton::Left) => Some(Trigger::MouseLeft),
                     Some(MouseButton::Right) => Some(Trigger::MouseRight),
