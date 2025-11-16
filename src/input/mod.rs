@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use calloop::timer::{TimeoutAction, Timer};
 use input::event::gesture::GestureEventCoordinates as _;
-use niri_config::{Action, Bind, Binds, Key, ModKey, Modifiers, SwitchBinds, Trigger};
+use niri_config::{Action, Bind, Binds, Config, Key, ModKey, Modifiers, SwitchBinds, Trigger};
 use niri_ipc::LayoutSwitchTarget;
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event,
@@ -43,7 +43,7 @@ use self::spatial_movement_grab::SpatialMovementGrab;
 use crate::layout::scrolling::ScrollDirection;
 use crate::layout::{ActivateWindow, LayoutElement as _};
 use crate::niri::{CastTarget, PointerVisibility, State};
-use crate::ui::mru::{MruCloseRequest, WindowMru};
+use crate::ui::mru::{MruCloseRequest, WindowMru, WindowMruUi};
 use crate::ui::screenshot_ui::ScreenshotUi;
 use crate::utils::spawning::{spawn, spawn_sh};
 use crate::utils::{center, get_monotonic_time, ResizeEdge};
@@ -386,6 +386,7 @@ impl State {
                 let key_code = event.key_code();
                 let modified = keysym.modified_sym();
                 let raw = keysym.raw_latin_sym_or_raw_current_sym();
+                let modifiers = modifiers_from_state(*mods);
 
                 if this.niri.exit_confirm_dialog.is_open() && pressed {
                     if raw == Some(Keysym::Return) {
@@ -400,10 +401,7 @@ impl State {
 
                 // Check if all modifiers were released while the MRU UI was open. If so, close the
                 // UI (which will also transfer the focus to the current MRU UI selection).
-                if this.niri.window_mru_ui.is_open()
-                    && !pressed
-                    && modifiers_from_state(*mods).is_empty()
-                {
+                if this.niri.window_mru_ui.is_open() && !pressed && modifiers.is_empty() {
                     this.do_action(Action::MruConfirm, false);
 
                     if this.niri.suppressed_keys.remove(&key_code) {
@@ -434,26 +432,8 @@ impl State {
 
                 let res = {
                     let config = this.niri.config.borrow();
-
-                    // Figure out the binds to use depending on whether the MRU is enabled and/or
-                    // open.
-                    let general_binds =
-                        (!this.niri.window_mru_ui.is_open()).then_some(config.binds.0.iter());
-                    let general_binds = general_binds.into_iter().flatten();
-
-                    let mru_binds = (config.recent_windows.on || this.niri.window_mru_ui.is_open())
-                        .then_some(config.recent_windows.binds.iter());
-                    let mru_binds = mru_binds.into_iter().flatten();
-
-                    let mru_open_binds = this.niri.window_mru_ui.is_open().then(|| {
-                        this.niri
-                            .window_mru_ui
-                            .opened_bindings(modifiers_from_state(*mods))
-                    });
-                    let mru_open_binds = mru_open_binds.into_iter().flatten();
-
-                    // MRU binds take precedence over general ones.
-                    let bindings = mru_binds.chain(mru_open_binds).chain(general_binds);
+                    let bindings =
+                        make_binds_iter(&config, &mut this.niri.window_mru_ui, modifiers);
 
                     should_intercept_key(
                         &mut this.niri.suppressed_keys,
@@ -2992,59 +2972,66 @@ impl State {
             false
         };
 
+        let is_mru_open = self.niri.window_mru_ui.is_open();
+
         // Handle wheel scroll bindings.
         if source == AxisSource::Wheel {
             // If we have a scroll bind with current modifiers, then accumulate and don't pass to
             // Wayland. If there's no bind, reset the accumulator.
             let mods = self.niri.seat.get_keyboard().unwrap().modifier_state();
             let modifiers = modifiers_from_state(mods);
-            let should_handle =
-                should_handle_in_overview || self.niri.mods_with_wheel_binds.contains(&modifiers);
+            let should_handle = should_handle_in_overview
+                || is_mru_open
+                || self.niri.mods_with_wheel_binds.contains(&modifiers);
             if should_handle {
                 let horizontal = horizontal_amount_v120.unwrap_or(0.);
                 let ticks = self.niri.horizontal_wheel_tracker.accumulate(horizontal);
                 if ticks != 0 {
-                    let (bind_left, bind_right) = if should_handle_in_overview
-                        && modifiers.is_empty()
-                    {
-                        let bind_left = Some(Bind {
-                            key: Key {
-                                trigger: Trigger::WheelScrollLeft,
-                                modifiers: Modifiers::empty(),
-                            },
-                            action: Action::FocusColumnLeftUnderMouse,
-                            repeat: true,
-                            cooldown: None,
-                            allow_when_locked: false,
-                            allow_inhibiting: false,
-                            hotkey_overlay_title: None,
-                        });
-                        let bind_right = Some(Bind {
-                            key: Key {
-                                trigger: Trigger::WheelScrollRight,
-                                modifiers: Modifiers::empty(),
-                            },
-                            action: Action::FocusColumnRightUnderMouse,
-                            repeat: true,
-                            cooldown: None,
-                            allow_when_locked: false,
-                            allow_inhibiting: false,
-                            hotkey_overlay_title: None,
-                        });
-                        (bind_left, bind_right)
-                    } else {
-                        let config = self.niri.config.borrow();
-                        let bindings = &config.binds.0;
-                        let bind_left =
-                            find_configured_bind(bindings, mod_key, Trigger::WheelScrollLeft, mods);
-                        let bind_right = find_configured_bind(
-                            bindings,
-                            mod_key,
-                            Trigger::WheelScrollRight,
-                            mods,
-                        );
-                        (bind_left, bind_right)
-                    };
+                    let (bind_left, bind_right) =
+                        if should_handle_in_overview && modifiers.is_empty() {
+                            let bind_left = Some(Bind {
+                                key: Key {
+                                    trigger: Trigger::WheelScrollLeft,
+                                    modifiers: Modifiers::empty(),
+                                },
+                                action: Action::FocusColumnLeftUnderMouse,
+                                repeat: true,
+                                cooldown: None,
+                                allow_when_locked: false,
+                                allow_inhibiting: false,
+                                hotkey_overlay_title: None,
+                            });
+                            let bind_right = Some(Bind {
+                                key: Key {
+                                    trigger: Trigger::WheelScrollRight,
+                                    modifiers: Modifiers::empty(),
+                                },
+                                action: Action::FocusColumnRightUnderMouse,
+                                repeat: true,
+                                cooldown: None,
+                                allow_when_locked: false,
+                                allow_inhibiting: false,
+                                hotkey_overlay_title: None,
+                            });
+                            (bind_left, bind_right)
+                        } else {
+                            let config = self.niri.config.borrow();
+                            let bindings =
+                                make_binds_iter(&config, &mut self.niri.window_mru_ui, modifiers);
+                            let bind_left = find_configured_bind(
+                                bindings.clone(),
+                                mod_key,
+                                Trigger::WheelScrollLeft,
+                                mods,
+                            );
+                            let bind_right = find_configured_bind(
+                                bindings,
+                                mod_key,
+                                Trigger::WheelScrollRight,
+                                mods,
+                            );
+                            (bind_left, bind_right)
+                        };
 
                     if let Some(right) = bind_right {
                         for _ in 0..ticks {
@@ -3116,9 +3103,14 @@ impl State {
                         (bind_up, bind_down)
                     } else {
                         let config = self.niri.config.borrow();
-                        let bindings = &config.binds.0;
-                        let bind_up =
-                            find_configured_bind(bindings, mod_key, Trigger::WheelScrollUp, mods);
+                        let bindings =
+                            make_binds_iter(&config, &mut self.niri.window_mru_ui, modifiers);
+                        let bind_up = find_configured_bind(
+                            bindings.clone(),
+                            mod_key,
+                            Trigger::WheelScrollUp,
+                            mods,
+                        );
                         let bind_down =
                             find_configured_bind(bindings, mod_key, Trigger::WheelScrollDown, mods);
                         (bind_up, bind_down)
@@ -3249,16 +3241,21 @@ impl State {
                 }
             }
 
-            if self.niri.mods_with_finger_scroll_binds.contains(&modifiers) {
+            if is_mru_open || self.niri.mods_with_finger_scroll_binds.contains(&modifiers) {
                 let ticks = self
                     .niri
                     .horizontal_finger_scroll_tracker
                     .accumulate(horizontal);
                 if ticks != 0 {
                     let config = self.niri.config.borrow();
-                    let bindings = &config.binds.0;
-                    let bind_left =
-                        find_configured_bind(bindings, mod_key, Trigger::TouchpadScrollLeft, mods);
+                    let bindings =
+                        make_binds_iter(&config, &mut self.niri.window_mru_ui, modifiers);
+                    let bind_left = find_configured_bind(
+                        bindings.clone(),
+                        mod_key,
+                        Trigger::TouchpadScrollLeft,
+                        mods,
+                    );
                     let bind_right =
                         find_configured_bind(bindings, mod_key, Trigger::TouchpadScrollRight, mods);
                     drop(config);
@@ -3281,9 +3278,14 @@ impl State {
                     .accumulate(vertical);
                 if ticks != 0 {
                     let config = self.niri.config.borrow();
-                    let bindings = &config.binds.0;
-                    let bind_up =
-                        find_configured_bind(bindings, mod_key, Trigger::TouchpadScrollUp, mods);
+                    let bindings =
+                        make_binds_iter(&config, &mut self.niri.window_mru_ui, modifiers);
+                    let bind_up = find_configured_bind(
+                        bindings.clone(),
+                        mod_key,
+                        Trigger::TouchpadScrollUp,
+                        mods,
+                    );
                     let bind_down =
                         find_configured_bind(bindings, mod_key, Trigger::TouchpadScrollDown, mods);
                     drop(config);
@@ -4892,6 +4894,27 @@ fn grab_allows_hot_corner(grab: &(dyn PointerGrab<State> + 'static)) -> bool {
     }
 
     true
+}
+
+fn make_binds_iter<'a>(
+    config: &'a Config,
+    mru: &'a mut WindowMruUi,
+    mods: Modifiers,
+) -> impl Iterator<Item = &'a Bind> + Clone {
+    // Figure out the binds to use depending on whether the MRU is enabled and/or
+    // open.
+    let general_binds = (!mru.is_open()).then_some(config.binds.0.iter());
+    let general_binds = general_binds.into_iter().flatten();
+
+    let mru_binds =
+        (config.recent_windows.on || mru.is_open()).then_some(config.recent_windows.binds.iter());
+    let mru_binds = mru_binds.into_iter().flatten();
+
+    let mru_open_binds = mru.is_open().then(|| mru.opened_bindings(mods));
+    let mru_open_binds = mru_open_binds.into_iter().flatten();
+
+    // MRU binds take precedence over general ones.
+    mru_binds.chain(mru_open_binds).chain(general_binds)
 }
 
 #[cfg(test)]

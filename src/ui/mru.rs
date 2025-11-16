@@ -1175,7 +1175,7 @@ impl WindowMruUi {
         }
     }
 
-    pub fn opened_bindings(&mut self, mods: Modifiers) -> impl Iterator<Item = &Bind> {
+    pub fn opened_bindings(&mut self, mods: Modifiers) -> impl Iterator<Item = &Bind> + Clone {
         // Fill modifiers with the current mods.
         for bind in &mut self.preset_opened_binds {
             bind.key.modifiers = mods;
