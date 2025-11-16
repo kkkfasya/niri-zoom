@@ -847,7 +847,6 @@ impl ViewPos {
 pub enum MruCloseRequest {
     Cancelled,
     Current,
-    Selection(MappedId),
 }
 
 niri_render_elements! {
@@ -939,7 +938,10 @@ impl WindowMruUi {
             unreachable!();
         };
 
-        let response = inner.build_close_response(close_request);
+        let response = match close_request {
+            MruCloseRequest::Cancelled => None,
+            MruCloseRequest::Current => inner.wmru.current_id,
+        };
 
         if inner.clock.now_unadjusted() < inner.open_at {
             // Hasn't displayed yet, no need to fade out.
@@ -997,16 +999,18 @@ impl WindowMruUi {
         self.set_scope(scope);
     }
 
-    pub fn pointer_motion(&mut self, pos_within_output: Point<f64, Logical>) {
+    pub fn pointer_motion(&mut self, pos_within_output: Point<f64, Logical>) -> Option<MappedId> {
         let WindowMruUiState::Open(inner) = &mut self.state else {
-            return;
+            return None;
         };
 
         inner.freeze_view = true;
 
-        if let Some(id) = inner.thumbnail_under(pos_within_output) {
+        let id = inner.thumbnail_under(pos_within_output);
+        if let Some(id) = id {
             inner.wmru.set_current(id);
         }
+        id
     }
 
     pub fn first(&mut self) {
@@ -1194,14 +1198,6 @@ impl WindowMruUi {
             WindowMruUiState::Open(inner) => Some(&inner.output),
             _ => None,
         }
-    }
-
-    pub fn thumbnail_under(&self, pos: Point<f64, Logical>) -> Option<MappedId> {
-        let WindowMruUiState::Open(inner) = &self.state else {
-            return None;
-        };
-
-        inner.thumbnail_under(pos)
     }
 }
 
@@ -1446,16 +1442,6 @@ impl Inner {
         }
 
         self.view_pos.offset(-delta);
-    }
-
-    fn build_close_response(&self, close_request: MruCloseRequest) -> Option<MappedId> {
-        let Inner { wmru, .. } = self;
-
-        match close_request {
-            MruCloseRequest::Cancelled => None,
-            MruCloseRequest::Current => wmru.current_id,
-            MruCloseRequest::Selection(id) => Some(id),
-        }
     }
 
     fn thumbnails(&self) -> impl Iterator<Item = (&Thumbnail, Rectangle<f64, Logical>)> {

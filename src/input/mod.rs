@@ -2645,11 +2645,9 @@ impl State {
                     let location = pointer.current_location();
                     let (output, pos_within_output) = self.niri.output_under(location).unwrap();
                     if mru_output == output {
-                        if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output)
-                        {
-                            if let Some(window) =
-                                self.niri.close_mru_ui(MruCloseRequest::Selection(id))
-                            {
+                        let id = self.niri.window_mru_ui.pointer_motion(pos_within_output);
+                        if id.is_some() {
+                            if let Some(window) = self.niri.close_mru_ui(MruCloseRequest::Current) {
                                 self.focus_window(&window);
                             }
                         } else {
@@ -3971,9 +3969,9 @@ impl State {
         } else if let Some(mru_output) = self.niri.window_mru_ui.output() {
             if let Some((output, pos_within_output)) = self.niri.output_under(pos) {
                 if mru_output == output {
-                    if let Some(id) = self.niri.window_mru_ui.thumbnail_under(pos_within_output) {
-                        if let Some(window) = self.niri.close_mru_ui(MruCloseRequest::Selection(id))
-                        {
+                    let id = self.niri.window_mru_ui.pointer_motion(pos_within_output);
+                    if id.is_some() {
+                        if let Some(window) = self.niri.close_mru_ui(MruCloseRequest::Current) {
                             self.focus_window(&window);
                         } else {
                             self.niri.close_mru_ui(MruCloseRequest::Cancelled);
