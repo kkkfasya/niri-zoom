@@ -464,7 +464,7 @@ impl State {
 
                     // Interaction with the active window, immediately update the active window's
                     // focus timestamp without waiting for a possible pending MRU lock-in delay.
-                    this.niri.mru_commit();
+                    this.niri.mru_apply_keyboard_commit();
                 }
 
                 res
@@ -2220,7 +2220,7 @@ impl State {
                     self.niri.window_mru_ui.advance(direction, filter);
                     self.niri.queue_redraw_mru_output();
                 } else if self.niri.config.borrow().recent_windows.on {
-                    self.niri.mru_commit();
+                    self.niri.mru_apply_keyboard_commit();
 
                     let config = self.niri.config.borrow();
                     let scope = scope.unwrap_or(self.niri.window_mru_ui.scope());
@@ -2928,10 +2928,6 @@ impl State {
             },
         );
         pointer.frame(self);
-
-        // The event is getting forwarded to a client, consider that the
-        // MRU Window order shoud be committed.
-        self.niri.mru_commit();
     }
 
     fn on_pointer_axis<I: InputBackend>(&mut self, event: I::PointerAxisEvent) {
@@ -3381,8 +3377,6 @@ impl State {
 
         pointer.axis(self, frame);
         pointer.frame(self);
-
-        self.niri.mru_commit();
     }
 
     fn on_tablet_tool_axis<I: InputBackend>(&mut self, event: I::TabletToolAxisEvent)
@@ -3616,7 +3610,6 @@ impl State {
                 SERIAL_COUNTER.next_serial(),
                 event.time_msec(),
             );
-            self.niri.mru_commit();
         }
     }
 
@@ -3654,7 +3647,6 @@ impl State {
                 fingers: event.fingers(),
             },
         );
-        self.niri.mru_commit();
     }
 
     fn on_gesture_swipe_update<I: InputBackend + 'static>(
@@ -3838,7 +3830,6 @@ impl State {
                 fingers: event.fingers(),
             },
         );
-        self.niri.mru_commit();
     }
 
     fn on_gesture_pinch_update<I: InputBackend>(&mut self, event: I::GesturePinchUpdateEvent) {
@@ -3893,7 +3884,6 @@ impl State {
                 fingers: event.fingers(),
             },
         );
-        self.niri.mru_commit();
     }
 
     fn on_gesture_hold_end<I: InputBackend>(&mut self, event: I::GestureHoldEndEvent) {
@@ -4076,8 +4066,6 @@ impl State {
 
         // We're using touch, hide the pointer.
         self.niri.pointer_visibility = PointerVisibility::Disabled;
-
-        self.niri.mru_commit();
     }
     fn on_touch_up<I: InputBackend>(&mut self, evt: I::TouchUpEvent) {
         let Some(handle) = self.niri.seat.get_touch() else {

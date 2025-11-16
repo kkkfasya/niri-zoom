@@ -1276,7 +1276,7 @@ impl State {
                             .niri
                             .event_loop
                             .insert_source(timer, move |_, _, state| {
-                                state.niri.mru_commit();
+                                state.niri.mru_apply_keyboard_commit();
                                 TimeoutAction::Drop
                             })
                             .unwrap();
@@ -6538,12 +6538,9 @@ impl Niri {
 
     /// Apply a pending MRU commit immediately.
     ///
-    /// Called for example on input events that reach the active window, which immediately adds it
-    /// to the MRU.
-    ///
-    /// Importantly, we're not calling this on events like pointer motion, because they are used
-    /// for focus-follows-mouse, and in this case should not commit the window to the MRU.
-    pub fn mru_commit(&mut self) {
+    /// Called for example on keyboard events that reach the active window, which immediately adds
+    /// it to the MRU.
+    pub fn mru_apply_keyboard_commit(&mut self) {
         let Some(pending) = self.pending_mru_commit.take() else {
             return;
         };
