@@ -45,7 +45,7 @@ use self::spatial_movement_grab::SpatialMovementGrab;
 use crate::layout::scrolling::ScrollDirection;
 use crate::layout::{ActivateWindow, LayoutElement as _};
 use crate::niri::{CastTarget, PointerVisibility, State};
-use crate::ui::mru::{MruCloseRequest, WindowMru, WindowMruUi};
+use crate::ui::mru::{WindowMru, WindowMruUi};
 use crate::ui::screenshot_ui::ScreenshotUi;
 use crate::utils::spawning::{spawn, spawn_sh};
 use crate::utils::{center, get_monotonic_time, ResizeEdge};
@@ -666,7 +666,7 @@ impl State {
             }
             Action::Screenshot(show_cursor, path) => {
                 self.open_screenshot_ui(show_cursor, path);
-                self.niri.window_mru_ui.close(MruCloseRequest::Cancelled);
+                self.niri.cancel_mru();
             }
             Action::ScreenshotWindow(write_to_disk, path) => {
                 let focus = self.niri.layout.focus_with_output();
@@ -2206,16 +2206,13 @@ impl State {
                 }
             }
             Action::MruConfirm => {
-                if let Some(window) = self.niri.close_mru_ui(MruCloseRequest::Current) {
+                if let Some(window) = self.niri.confirm_mru() {
                     // Transfer focus to the selected window id.
                     self.focus_window(&window);
                 }
             }
             Action::MruCancel => {
-                if self.niri.window_mru_ui.is_open() {
-                    self.niri.window_mru_ui.close(MruCloseRequest::Cancelled);
-                    self.niri.queue_redraw_all();
-                }
+                self.niri.cancel_mru();
             }
             Action::MruAdvance {
                 direction,
@@ -2647,14 +2644,14 @@ impl State {
                     if mru_output == output {
                         let id = self.niri.window_mru_ui.pointer_motion(pos_within_output);
                         if id.is_some() {
-                            if let Some(window) = self.niri.close_mru_ui(MruCloseRequest::Current) {
+                            if let Some(window) = self.niri.confirm_mru() {
                                 self.focus_window(&window);
                             }
                         } else {
-                            self.niri.close_mru_ui(MruCloseRequest::Cancelled);
+                            self.niri.cancel_mru();
                         }
                     } else {
-                        self.niri.close_mru_ui(MruCloseRequest::Cancelled);
+                        self.niri.cancel_mru();
                     }
                 }
                 self.niri.suppressed_buttons.insert(button_code);
@@ -3971,10 +3968,10 @@ impl State {
                 if mru_output == output {
                     let id = self.niri.window_mru_ui.pointer_motion(pos_within_output);
                     if id.is_some() {
-                        if let Some(window) = self.niri.close_mru_ui(MruCloseRequest::Current) {
+                        if let Some(window) = self.niri.confirm_mru() {
                             self.focus_window(&window);
                         } else {
-                            self.niri.close_mru_ui(MruCloseRequest::Cancelled);
+                            self.niri.cancel_mru();
                         }
                     }
                 }

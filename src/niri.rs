@@ -3188,8 +3188,7 @@ impl Niri {
         }
 
         if self.window_mru_ui.output() == Some(output) {
-            self.window_mru_ui.close(MruCloseRequest::Cancelled);
-            self.queue_redraw_all();
+            self.cancel_mru();
         }
     }
 
@@ -6517,7 +6516,7 @@ impl Niri {
         self.notified_activity_this_iteration = true;
     }
 
-    pub fn close_mru_ui(&mut self, close_request: MruCloseRequest) -> Option<Window> {
+    pub fn close_mru(&mut self, close_request: MruCloseRequest) -> Option<Window> {
         if !self.window_mru_ui.is_open() {
             return None;
         }
@@ -6525,6 +6524,14 @@ impl Niri {
 
         let id = self.window_mru_ui.close(close_request)?;
         self.find_window_by_id(id)
+    }
+
+    pub fn cancel_mru(&mut self) {
+        self.close_mru(MruCloseRequest::Cancelled);
+    }
+
+    pub fn confirm_mru(&mut self) -> Option<Window> {
+        self.close_mru(MruCloseRequest::Current)
     }
 
     // Consume the active `PendingMruCommit`, if any, and use the information
