@@ -2221,6 +2221,7 @@ impl State {
                     self.niri.queue_redraw_mru_output();
                 } else if self.niri.config.borrow().recent_windows.on {
                     self.niri.mru_commit();
+
                     let config = self.niri.config.borrow();
                     let scope = scope.unwrap_or(self.niri.window_mru_ui.scope());
 
@@ -3407,6 +3408,14 @@ impl State {
             self.niri.screenshot_ui.pointer_motion(point, None);
         }
 
+        if let Some(mru_output) = self.niri.window_mru_ui.output() {
+            if let Some((output, pos_within_output)) = self.niri.output_under(pos) {
+                if mru_output == output {
+                    self.niri.window_mru_ui.pointer_motion(pos_within_output);
+                }
+            }
+        }
+
         let under = self.niri.contents_under(pos);
 
         let tablet_seat = self.niri.seat.tablet_seat();
@@ -3484,6 +3493,19 @@ impl State {
 
                             if self.niri.screenshot_ui.pointer_down(output, point, None) {
                                 self.niri.queue_redraw_all();
+                            }
+                        }
+                    } else if let Some(mru_output) = self.niri.window_mru_ui.output() {
+                        if let Some((output, pos_within_output)) = self.niri.output_under(pos) {
+                            if mru_output == output {
+                                let id = self.niri.window_mru_ui.pointer_motion(pos_within_output);
+                                if id.is_some() {
+                                    self.confirm_mru();
+                                } else {
+                                    self.niri.cancel_mru();
+                                }
+                            } else {
+                                self.niri.cancel_mru();
                             }
                         }
                     } else if let Some((window, _)) = under.window {
