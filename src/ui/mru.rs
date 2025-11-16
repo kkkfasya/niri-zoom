@@ -1105,6 +1105,8 @@ impl WindowMruUi {
             }
         };
 
+        let span = tracy_client::span!("mru render");
+
         let alpha = progress.clamp(0., 1.) as f32;
 
         // Put a backdrop above the current desktop view to contrast the thumbnails.
@@ -1165,11 +1167,15 @@ impl WindowMruUi {
         let backdrop_elem = (offscreen_elem.is_none())
             .then(|| WindowMruUiRenderElement::SolidColor(render_backdrop(alpha)));
 
+        // Make sure the span includes consuming the iterator.
+        let drop_span = std::iter::once(span).filter_map(|_| None);
+
         Some(
             offscreen_elem
                 .into_iter()
                 .chain(normal_elems)
-                .chain(backdrop_elem),
+                .chain(backdrop_elem)
+                .chain(drop_span),
         )
     }
 

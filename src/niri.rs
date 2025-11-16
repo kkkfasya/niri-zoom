@@ -4437,18 +4437,13 @@ impl Niri {
         }
 
         // Then, the Alt-Tab switcher.
-        {
-            // Make sure the span includes consuming the iterator.
-            let _span = tracy_client::span!("mru render");
-
-            let mru_elements = self
-                .window_mru_ui
-                .render_output(self, output, renderer, target)
-                .into_iter()
-                .flatten()
-                .map(OutputRenderElements::from);
-            elements.extend(mru_elements);
-        }
+        let mru_elements = self
+            .window_mru_ui
+            .render_output(self, output, renderer, target)
+            .into_iter()
+            .flatten()
+            .map(OutputRenderElements::from);
+        elements.extend(mru_elements);
 
         // Don't draw the focus ring on the workspaces while interactively moving above those
         // workspaces, since the interactively-moved window already has a focus ring.
