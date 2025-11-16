@@ -6530,16 +6530,18 @@ impl Niri {
     // Consume the active `PendingMruCommit`, if any, and use the information
     // it contains to update the (active) window's focus timestamp
     pub fn mru_commit(&mut self) {
-        if let Some(pending) = self.pending_mru_commit.take() {
-            if let Some(window) = self
-                .layout
-                .workspaces_mut()
-                .flat_map(|ws| ws.windows_mut())
-                .find(|w| w.id() == pending.id)
-            {
-                window.set_focus_timestamp(pending.stamp);
-            }
-            self.event_loop.remove(pending.token);
+        let Some(pending) = self.pending_mru_commit.take() else {
+            return;
+        };
+        self.event_loop.remove(pending.token);
+
+        if let Some(window) = self
+            .layout
+            .workspaces_mut()
+            .flat_map(|ws| ws.windows_mut())
+            .find(|w| w.id() == pending.id)
+        {
+            window.set_focus_timestamp(pending.stamp);
         }
     }
 

@@ -461,9 +461,9 @@ impl State {
                             return FilterResult::Intercept(Some(bind));
                         }
                     }
-                    // Interaction with the active window, immediately update
-                    // the active window's focus timestamp without waiting for a
-                    // possible pending MRU lock-in delay.
+
+                    // Interaction with the active window, immediately update the active window's
+                    // focus timestamp without waiting for a possible pending MRU lock-in delay.
                     this.niri.mru_commit();
                 }
 
@@ -2674,7 +2674,8 @@ impl State {
                 }
                 .and_then(|trigger| {
                     let config = self.niri.config.borrow();
-                    let bindings = &config.binds.0;
+                    let bindings =
+                        make_binds_iter(&config, &mut self.niri.window_mru_ui, modifiers);
                     find_configured_bind(bindings, mod_key, trigger, mods)
                 }) {
                     self.niri.suppressed_buttons.insert(button_code);
@@ -4906,13 +4907,15 @@ fn grab_allows_hot_corner(grab: &(dyn PointerGrab<State> + 'static)) -> bool {
     true
 }
 
+/// Returns an iterator over bindings.
+///
+/// Includes dynamically populated bindings like the MRU UI.
 fn make_binds_iter<'a>(
     config: &'a Config,
     mru: &'a mut WindowMruUi,
     mods: Modifiers,
 ) -> impl Iterator<Item = &'a Bind> + Clone {
-    // Figure out the binds to use depending on whether the MRU is enabled and/or
-    // open.
+    // Figure out the binds to use depending on whether the MRU is enabled and/or open.
     let general_binds = (!mru.is_open()).then_some(config.binds.0.iter());
     let general_binds = general_binds.into_iter().flatten();
 
