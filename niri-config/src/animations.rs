@@ -96,6 +96,7 @@ impl MergeWith<AnimationsPart> for Animations {
             exit_confirmation_open_close,
             screenshot_ui_open,
             overview_open_close,
+            recent_windows_close,
         );
     }
 }

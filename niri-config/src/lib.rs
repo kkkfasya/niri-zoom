@@ -791,6 +791,10 @@ mod tests {
                 window-close {
                     curve "cubic-bezier" 0.05 0.7 0.1 1  
                 }
+
+                recent-windows-close {
+                    off
+                }
             }
 
             gestures {
@@ -1553,7 +1557,7 @@ mod tests {
                 ),
                 recent_windows_close: RecentWindowsCloseAnim(
                     Animation {
-                        off: false,
+                        off: true,
                         kind: Spring(
                             SpringParams {
                                 damping_ratio: 1.0,
