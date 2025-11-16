@@ -78,6 +78,129 @@ const FONT: &str = "sans 14px";
 /// Count must match one defined in `generate_scope_panels()`.
 static SCOPE_CYCLE: [MruScope; 3] = [MruScope::All, MruScope::Workspace, MruScope::Output];
 
+/// Window MRU traversal context.
+#[derive(Debug)]
+pub struct WindowMru {
+    /// Windows in MRU order.
+    thumbnails: Vec<Thumbnail>,
+
+    /// Id of the currently selected window.
+    current_id: Option<MappedId>,
+
+    /// Current scope.
+    scope: MruScope,
+
+    /// Current filter.
+    app_id_filter: Option<String>,
+}
+
+pub struct WindowMruUi {
+    state: UiState,
+    preset_opened_binds: Vec<Bind>,
+    dynamic_opened_binds: Vec<Bind>,
+    config: Rc<RefCell<Config>>,
+}
+
+pub enum MruCloseRequest {
+    Cancel,
+    Confirm,
+}
+
+niri_render_elements! {
+    ThumbnailRenderElement<R> => {
+        LayoutElement = LayoutElementRenderElement<R>,
+        ClippedSurface = ClippedSurfaceRenderElement<R>,
+        Border = BorderRenderElement,
+    }
+}
+
+niri_render_elements! {
+    WindowMruUiRenderElement<R> => {
+        SolidColor = SolidColorRenderElement,
+        TextureElement = PrimaryGpuTextureRenderElement,
+        GradientFadeElem = GradientFadeTextureRenderElement,
+        FocusRing = FocusRingRenderElement,
+        Offscreen = OffscreenRenderElement,
+        Thumbnail = RelocateRenderElement<RescaleRenderElement<ThumbnailRenderElement<R>>>,
+    }
+}
+
+enum UiState {
+    Open(Inner),
+    Closing {
+        inner: Inner,
+        anim: Animation,
+    },
+    Closed {
+        /// Scope used when the UI was last opened.
+        previous_scope: MruScope,
+    },
+}
+
+/// State of an opened MRU UI.
+struct Inner {
+    /// List of Window Ids to display in the MRU UI.
+    wmru: WindowMru,
+
+    /// View position relative to the leftmost visible window.
+    view_pos: ViewPos,
+
+    // If true, don't automatically move the current thumbnail in-view. Set on pointer motion.
+    freeze_view: bool,
+
+    /// Animation clock.
+    clock: Clock,
+
+    /// Current config.
+    config: Rc<RefCell<Config>>,
+
+    /// Time when the UI should appear.
+    open_at: Duration,
+
+    /// Output the UI was opened on.
+    output: Output,
+
+    /// Scope panel textures.
+    scope_panel: RefCell<ScopePanel>,
+
+    /// Backdrop buffers for each output.
+    backdrop_buffers: RefCell<HashMap<Output, SolidColorBuffer>>,
+
+    /// Offscreen buffer for the closing fade animation on the main output.
+    offscreen: OffscreenBuffer,
+}
+
+#[derive(Debug)]
+enum ViewPos {
+    /// The view position is static.
+    Static(f64),
+    /// The view position is animating.
+    Animation(Animation),
+}
+
+#[derive(Debug)]
+struct MoveAnimation {
+    anim: Animation,
+    from: f64,
+}
+
+type MruTexture = TextureBuffer<GlesTexture>;
+
+/// Cached title texture.
+#[derive(Debug, Default)]
+struct TitleTexture {
+    title: String,
+    scale: f64,
+    texture: Option<Option<MruTexture>>,
+}
+
+/// Cached scope panel textures.
+#[derive(Debug, Default)]
+struct ScopePanel {
+    scale: f64,
+    textures: Option<Option<[MruTexture; 3]>>,
+}
+
 #[derive(Debug)]
 struct Thumbnail {
     id: MappedId,
@@ -442,22 +565,6 @@ impl Thumbnail {
     }
 }
 
-/// Window MRU traversal context.
-#[derive(Debug)]
-pub struct WindowMru {
-    /// Windows in MRU order.
-    thumbnails: Vec<Thumbnail>,
-
-    /// Id of the currently selected window.
-    current_id: Option<MappedId>,
-
-    /// Current scope.
-    scope: MruScope,
-
-    /// Current filter.
-    app_id_filter: Option<String>,
-}
-
 impl WindowMru {
     pub fn new(niri: &Niri) -> Self {
         let Some(output) = niri.layout.active_output() else {
@@ -734,74 +841,6 @@ fn match_filter(scope: MruScope, app_id_filter: Option<&str>) -> impl Fn(&Thumbn
     move |thumbnail| matches(scope, app_id_filter, thumbnail)
 }
 
-type MruTexture = TextureBuffer<GlesTexture>;
-
-pub struct WindowMruUi {
-    state: UiState,
-    preset_opened_binds: Vec<Bind>,
-    dynamic_opened_binds: Vec<Bind>,
-    config: Rc<RefCell<Config>>,
-}
-
-enum UiState {
-    Open(Inner),
-    Closing {
-        inner: Inner,
-        anim: Animation,
-    },
-    Closed {
-        /// Scope used when the UI was last opened.
-        previous_scope: MruScope,
-    },
-}
-
-/// State of an opened MRU UI.
-struct Inner {
-    /// List of Window Ids to display in the MRU UI.
-    wmru: WindowMru,
-
-    /// View position relative to the leftmost visible window.
-    view_pos: ViewPos,
-
-    // If true, don't automatically move the current thumbnail in-view. Set on pointer motion.
-    freeze_view: bool,
-
-    /// Animation clock.
-    clock: Clock,
-
-    /// Current config.
-    config: Rc<RefCell<Config>>,
-
-    /// Time when the UI should appear.
-    open_at: Duration,
-
-    /// Output the UI was opened on.
-    output: Output,
-
-    /// Scope panel textures.
-    scope_panel: RefCell<ScopePanel>,
-
-    /// Backdrop buffers for each output.
-    backdrop_buffers: RefCell<HashMap<Output, SolidColorBuffer>>,
-
-    /// Offscreen buffer for the closing fade animation on the main output.
-    offscreen: OffscreenBuffer,
-}
-
-#[derive(Debug)]
-enum ViewPos {
-    /// The view position is static.
-    Static(f64),
-    /// The view position is animating.
-    Animation(Animation),
-}
-
-#[derive(Debug)]
-struct MoveAnimation {
-    anim: Animation,
-    from: f64,
-}
-
 impl ViewPos {
     fn current(&self) -> f64 {
         match self {
@@ -848,30 +887,6 @@ impl ViewPos {
             ViewPos::Static(pos) => *pos += delta,
             ViewPos::Animation(anim) => anim.offset(delta),
         }
-    }
-}
-
-pub enum MruCloseRequest {
-    Cancel,
-    Confirm,
-}
-
-niri_render_elements! {
-    ThumbnailRenderElement<R> => {
-        LayoutElement = LayoutElementRenderElement<R>,
-        ClippedSurface = ClippedSurfaceRenderElement<R>,
-        Border = BorderRenderElement,
-    }
-}
-
-niri_render_elements! {
-    WindowMruUiRenderElement<R> => {
-        SolidColor = SolidColorRenderElement,
-        TextureElement = PrimaryGpuTextureRenderElement,
-        GradientFadeElem = GradientFadeTextureRenderElement,
-        FocusRing = FocusRingRenderElement,
-        Offscreen = OffscreenRenderElement,
-        Thumbnail = RelocateRenderElement<RescaleRenderElement<ThumbnailRenderElement<R>>>,
     }
 }
 
@@ -1604,14 +1619,6 @@ impl Inner {
     }
 }
 
-/// Cached title texture.
-#[derive(Debug, Default)]
-struct TitleTexture {
-    title: String,
-    scale: f64,
-    texture: Option<Option<MruTexture>>,
-}
-
 impl TitleTexture {
     fn get(&mut self, renderer: &mut GlesRenderer, title: &str, scale: f64) -> Option<MruTexture> {
         if self.title != title || self.scale != scale {
@@ -1678,13 +1685,6 @@ fn generate_title_texture(
     )?;
 
     Ok(buffer)
-}
-
-/// Cached scope panel textures.
-#[derive(Debug, Default)]
-struct ScopePanel {
-    scale: f64,
-    textures: Option<Option<[MruTexture; 3]>>,
 }
 
 impl ScopePanel {
